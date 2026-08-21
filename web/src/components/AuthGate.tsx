@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CfButton, CfInput, CfAlert } from "comfenalco-ui-react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import Sidebar from "@/components/Sidebar";
 
 /** Login de operadores con Supabase Auth (usuarios creados desde el dashboard de Supabase). */
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -10,6 +11,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [logged, setLogged] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -17,10 +19,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     const sb = supabaseBrowser();
     sb.auth.getSession().then(({ data }) => {
       setLogged(Boolean(data.session));
+      setUserEmail(data.session?.user.email ?? null);
       setReady(true);
     });
     const { data: sub } = sb.auth.onAuthStateChange((_e, session) => {
       setLogged(Boolean(session));
+      setUserEmail(session?.user.email ?? null);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -33,12 +37,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setBusy(false);
   }
 
-  if (!ready) return <p className="muted">Cargando…</p>;
+  if (!ready) return <p className="muted" style={{ padding: "2rem" }}>Cargando…</p>;
 
   if (!logged) {
     return (
       <div className="login-wrap">
         <div className="panel login-card">
+          <div className="login-logo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/comfenalco-logo.svg" alt="Comfenalco Antioquia" />
+          </div>
           <div>
             <p className="eyebrow">Tiquetera</p>
             <h1>Acceso de operadores</h1>
@@ -78,13 +86,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <>
-      <div className="toolbar" style={{ justifyContent: "flex-end", marginBottom: "1rem" }}>
-        <CfButton variant="tertiary" icon="logout" onClick={() => supabaseBrowser().auth.signOut()}>
-          Cerrar sesión
-        </CfButton>
-      </div>
-      {children}
-    </>
+    <div className="shell">
+      <Sidebar email={userEmail} />
+      <main className="shell-main">
+        <div className="shell-main-inner">{children}</div>
+      </main>
+    </div>
   );
 }
