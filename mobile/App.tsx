@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
+  Platform,
   Pressable,
+  RefreshControl,
   SafeAreaView,
+  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -18,6 +22,24 @@ const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// Paleta del design system Comfenalco (kit-ui-library) replicada para RN.
+const C = {
+  brand: "#005744",
+  brandDark: "#004f3e",
+  mantis: "#3c7f37",
+  paper: "#f3f6f5",
+  card: "#ffffff",
+  ink: "#16211d",
+  muted: "#5c6b66",
+  line: "#e4eae8",
+  ok: "#3c7f37",
+  warn: "#9a6b12",
+  error: "#b3402f",
+  white: "#ffffff",
+};
+
+const TOP_INSET = Platform.OS === "android" ? RNStatusBar.currentHeight ?? 24 : 0;
+
 type ScanResult = {
   result: "ok" | "already_used" | "invalid" | "not_issued";
   attendee_name?: string;
@@ -26,26 +48,28 @@ type ScanResult = {
   redeemed_by?: string;
 };
 
-const COLORS = {
-  ok: "#2f7d4f",
-  already_used: "#9a6b12",
-  invalid: "#b3402f",
-  not_issued: "#b3402f",
+const RESULT_COLOR: Record<ScanResult["result"], string> = {
+  ok: C.ok,
+  already_used: C.warn,
+  invalid: C.error,
+  not_issued: C.error,
 };
 
-const TITLES = {
+const RESULT_TITLE: Record<ScanResult["result"], string> = {
   ok: "INGRESO VÁLIDO",
   already_used: "QR YA UTILIZADO",
   invalid: "CÓDIGO INVÁLIDO",
   not_issued: "BOLETA NO EMITIDA",
 };
 
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession();
+  return { Authorization: `Bearer ${data.session?.access_token ?? ""}` };
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [scan, setScan] = useState<ScanResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [netError, setNetError] = useState<string | null>(null);
-  const lastToken = useRef<string | null>(null);
+  const [tab, setTab] = useState<"scan" | "history">("scan");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -53,8 +77,58 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  if (!session) return <Login />;
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="dark" />
+      <View style={styles.header}>
+        <Text style={styles.brand}>Tiquetera</Text>
+        <Pressable hitSlop={10} onPress={() => supabase.auth.signOut()}>
+          <Text style={styles.headerLink}>Salir</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.content}>
+        {tab === "scan" ? <Scanner /> : <History />}
+      </View>
+
+      <View style={styles.tabbar}>
+        <TabButton label="Lector" glyph="⛶" active={tab === "scan"} onPress={() => setTab("scan")} />
+        <TabButton label="Ingresos" glyph="≣" active={tab === "history"} onPress={() => setTab("history")} />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function TabButton({
+  label,
+  glyph,
+  active,
+  onPress,
+}: {
+  label: string;
+  glyph: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.tab} onPress={onPress}>
+      <View style={[styles.tabIndicator, active && styles.tabIndicatorActive]} />
+      <Text style={[styles.tabGlyph, { color: active ? C.brand : C.muted }]}>{glyph}</Text>
+      <Text style={[styles.tabLabel, { color: active ? C.brand : C.muted }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function Scanner() {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [netError, setNetError] = useState<string | null>(null);
+  const lastToken = useRef<string | null>(null);
+
   async function handleScan(token: string) {
-    // Evita disparar el mismo QR muchas veces mientras sigue frente a la cámara
     if (busy || scan || token === lastToken.current) return;
     lastToken.current = token;
     setBusy(true);
@@ -62,13 +136,9 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/api/scan`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token}`,
-        },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ token }),
       });
-      if (!res.ok && res.status !== 200) throw new Error(`HTTP ${res.status}`);
       setScan((await res.json()) as ScanResult);
     } catch {
       // TODO contingencia: encolar localmente y reintentar (Etapa 3 del plan)
@@ -78,67 +148,39 @@ export default function App() {
     setBusy(false);
   }
 
-  function nextScan() {
+  function next() {
     setScan(null);
     setNetError(null);
     lastToken.current = null;
   }
 
-  if (!session) return <Login />;
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.brand}>Tiquetera</Text>
-        <Pressable onPress={() => supabase.auth.signOut()}>
-          <Text style={styles.link}>Salir</Text>
-        </Pressable>
-      </View>
-
-      {scan ? (
-        <View style={[styles.result, { backgroundColor: COLORS[scan.result] }]}>
-          <Text style={styles.resultTitle}>{TITLES[scan.result]}</Text>
-          {scan.attendee_name && <Text style={styles.resultName}>{scan.attendee_name}</Text>}
-          {scan.result === "ok" && scan.attendee_doc && (
-            <Text style={styles.resultDetail}>Documento: {scan.attendee_doc}</Text>
-          )}
-          {scan.result === "already_used" && scan.redeemed_at && (
-            <Text style={styles.resultDetail}>
-              Redimido: {new Date(scan.redeemed_at).toLocaleString()}
-              {scan.redeemed_by ? `\npor ${scan.redeemed_by}` : ""}
-            </Text>
-          )}
-          <Pressable style={styles.nextBtn} onPress={nextScan}>
-            <Text style={styles.nextBtnText}>Escanear siguiente</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <Scanner onScan={handleScan} busy={busy} netError={netError} onRetry={nextScan} />
-      )}
-    </SafeAreaView>
-  );
-}
-
-function Scanner({
-  onScan,
-  busy,
-  netError,
-  onRetry,
-}: {
-  onScan: (token: string) => void;
-  busy: boolean;
-  netError: string | null;
-  onRetry: () => void;
-}) {
-  const [permission, requestPermission] = useCameraPermissions();
-
   if (!permission?.granted) {
     return (
       <View style={styles.center}>
         <Text style={styles.msg}>Se necesita acceso a la cámara para escanear.</Text>
-        <Pressable style={styles.nextBtn} onPress={requestPermission}>
-          <Text style={styles.nextBtnText}>Permitir cámara</Text>
+        <Pressable style={styles.primaryBtn} onPress={requestPermission}>
+          <Text style={styles.primaryBtnText}>Permitir cámara</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (scan) {
+    return (
+      <View style={[styles.result, { backgroundColor: RESULT_COLOR[scan.result] }]}>
+        <Text style={styles.resultTitle}>{RESULT_TITLE[scan.result]}</Text>
+        {scan.attendee_name && <Text style={styles.resultName}>{scan.attendee_name}</Text>}
+        {scan.result === "ok" && scan.attendee_doc && (
+          <Text style={styles.resultDetail}>Documento: {scan.attendee_doc}</Text>
+        )}
+        {scan.result === "already_used" && scan.redeemed_at && (
+          <Text style={styles.resultDetail}>
+            Redimido: {new Date(scan.redeemed_at).toLocaleString()}
+            {scan.redeemed_by ? `\npor ${scan.redeemed_by}` : ""}
+          </Text>
+        )}
+        <Pressable style={styles.lightBtn} onPress={next}>
+          <Text style={styles.lightBtnText}>Escanear siguiente</Text>
         </Pressable>
       </View>
     );
@@ -149,22 +191,95 @@ function Scanner({
       <CameraView
         style={{ flex: 1 }}
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-        onBarcodeScanned={({ data }) => onScan(data)}
+        onBarcodeScanned={({ data }) => handleScan(data)}
       />
       <View style={styles.overlay}>
         {busy ? (
-          <ActivityIndicator color="#fff" size="large" />
+          <ActivityIndicator color={C.white} size="large" />
         ) : netError ? (
           <>
             <Text style={styles.overlayError}>{netError}</Text>
-            <Pressable style={styles.nextBtn} onPress={onRetry}>
-              <Text style={styles.nextBtnText}>Reintentar</Text>
+            <Pressable style={styles.lightBtn} onPress={next}>
+              <Text style={styles.lightBtnText}>Reintentar</Text>
             </Pressable>
           </>
         ) : (
           <Text style={styles.overlayText}>Apunta al código QR de la boleta</Text>
         )}
       </View>
+    </View>
+  );
+}
+
+type Ingreso = {
+  id: string;
+  attendee_name: string;
+  attendee_doc: string | null;
+  redeemed_at: string | null;
+  redeemed_by: string | null;
+  events: { name: string } | null;
+};
+
+function History() {
+  const [items, setItems] = useState<Ingreso[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/scan/history`, { headers: await authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setItems((await res.json()) as Ingreso[]);
+    } catch {
+      setError("No se pudo cargar el listado. Reintenta.");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={C.brand} size="large" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.paper }}>
+      <View style={styles.listHeader}>
+        <Text style={styles.listTitle}>Ingresos realizados</Text>
+        <Text style={styles.listCount}>{items.length}</Text>
+      </View>
+      {error && <Text style={[styles.msg, { color: C.error }]}>{error}</Text>}
+      <FlatList
+        data={items}
+        keyExtractor={(i) => i.id}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={C.brand} />}
+        contentContainerStyle={items.length === 0 ? styles.center : { padding: 12 }}
+        ListEmptyComponent={<Text style={styles.msg}>Aún no hay ingresos registrados.</Text>}
+        renderItem={({ item }) => (
+          <View style={styles.row}>
+            <View style={styles.rowDot} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowName}>{item.attendee_name}</Text>
+              <Text style={styles.rowMeta}>
+                {item.events?.name ?? "Evento"}
+                {item.attendee_doc ? ` · CC ${item.attendee_doc}` : ""}
+              </Text>
+            </View>
+            <Text style={styles.rowTime}>
+              {item.redeemed_at
+                ? new Date(item.redeemed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                : ""}
+            </Text>
+          </View>
+        )}
+      />
     </View>
   );
 }
@@ -186,11 +301,12 @@ function Login() {
   return (
     <SafeAreaView style={[styles.container, styles.center]}>
       <StatusBar style="dark" />
-      <Text style={styles.brand}>Tiquetera</Text>
+      <Text style={styles.loginBrand}>Tiquetera</Text>
       <Text style={styles.msg}>Acceso de operadores</Text>
       <TextInput
         style={styles.input}
         placeholder="Correo"
+        placeholderTextColor={C.muted}
         autoCapitalize="none"
         keyboardType="email-address"
         value={email}
@@ -199,42 +315,71 @@ function Login() {
       <TextInput
         style={styles.input}
         placeholder="Contraseña"
+        placeholderTextColor={C.muted}
         secureTextEntry
         value={password}
         onChangeText={setPassword}
       />
-      {error && <Text style={styles.error}>{error}</Text>}
-      <Pressable style={[styles.nextBtn, { marginTop: 12 }]} onPress={login} disabled={busy}>
-        <Text style={styles.nextBtnText}>{busy ? "Ingresando…" : "Ingresar"}</Text>
+      {error && <Text style={[styles.msg, { color: C.error }]}>{error}</Text>}
+      <Pressable style={[styles.primaryBtn, { marginTop: 12 }]} onPress={login} disabled={busy}>
+        <Text style={styles.primaryBtnText}>{busy ? "Ingresando…" : "Ingresar"}</Text>
       </Pressable>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f7f8f8" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+  container: { flex: 1, backgroundColor: C.paper },
+  content: { flex: 1 },
+  center: { flexGrow: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    paddingTop: TOP_INSET + 12,
+    paddingBottom: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: C.card,
+    borderBottomWidth: 1,
+    borderBottomColor: C.line,
   },
-  brand: { fontSize: 20, fontWeight: "700", color: "#1f2a2e" },
-  link: { color: "#0e6b60", fontWeight: "600" },
-  msg: { color: "#5f6e72", marginVertical: 8, textAlign: "center" },
-  error: { color: "#b3402f", marginTop: 8 },
+  brand: { fontSize: 20, fontWeight: "800", color: C.brand },
+  headerLink: { color: C.brand, fontWeight: "700", fontSize: 15 },
+
+  tabbar: {
+    flexDirection: "row",
+    backgroundColor: C.card,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+    paddingBottom: Platform.OS === "ios" ? 18 : 8,
+  },
+  tab: { flex: 1, alignItems: "center", paddingTop: 8, paddingBottom: 6 },
+  tabIndicator: { height: 3, width: 34, borderRadius: 2, backgroundColor: "transparent", marginBottom: 6 },
+  tabIndicatorActive: { backgroundColor: C.brand },
+  tabGlyph: { fontSize: 20, lineHeight: 22 },
+  tabLabel: { fontSize: 12, fontWeight: "700", marginTop: 2 },
+
+  msg: { color: C.muted, marginVertical: 8, textAlign: "center" },
+
+  primaryBtn: { backgroundColor: C.brand, borderRadius: 10, paddingVertical: 14, paddingHorizontal: 28 },
+  primaryBtnText: { color: C.white, fontWeight: "700", fontSize: 15 },
+  lightBtn: { backgroundColor: C.white, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 28, marginTop: 28 },
+  lightBtnText: { color: C.ink, fontWeight: "700", fontSize: 15 },
+
   input: {
     width: "100%",
     maxWidth: 320,
-    backgroundColor: "#fff",
+    backgroundColor: C.card,
     borderWidth: 1,
-    borderColor: "#e1e7e6",
-    borderRadius: 8,
+    borderColor: C.line,
+    borderRadius: 10,
     padding: 12,
     marginTop: 10,
+    color: C.ink,
   },
+  loginBrand: { fontSize: 24, fontWeight: "800", color: C.brand },
+
   overlay: {
     position: "absolute",
     bottom: 0,
@@ -244,18 +389,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.55)",
   },
-  overlayText: { color: "#fff", fontSize: 16 },
+  overlayText: { color: C.white, fontSize: 16 },
   overlayError: { color: "#ffb4a4", fontSize: 15, textAlign: "center", marginBottom: 12 },
+
   result: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  resultTitle: { color: "#fff", fontSize: 26, fontWeight: "800", letterSpacing: 1 },
-  resultName: { color: "#fff", fontSize: 20, marginTop: 12, fontWeight: "600" },
-  resultDetail: { color: "rgba(255,255,255,0.85)", marginTop: 8, textAlign: "center" },
-  nextBtn: {
-    backgroundColor: "#ffffff",
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    marginTop: 28,
+  resultTitle: { color: C.white, fontSize: 26, fontWeight: "800", letterSpacing: 1, textAlign: "center" },
+  resultName: { color: C.white, fontSize: 20, marginTop: 12, fontWeight: "700", textAlign: "center" },
+  resultDetail: { color: "rgba(255,255,255,0.9)", marginTop: 8, textAlign: "center" },
+
+  listHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 6,
   },
-  nextBtnText: { color: "#1f2a2e", fontWeight: "700", fontSize: 15 },
+  listTitle: { fontSize: 16, fontWeight: "800", color: C.ink },
+  listCount: { fontSize: 14, fontWeight: "700", color: C.brand },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  rowDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.ok, marginRight: 12 },
+  rowName: { fontSize: 15, fontWeight: "700", color: C.ink },
+  rowMeta: { fontSize: 12.5, color: C.muted, marginTop: 2 },
+  rowTime: { fontSize: 13, fontWeight: "700", color: C.muted, marginLeft: 8 },
 });
