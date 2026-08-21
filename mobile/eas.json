@@ -3,7 +3,12 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://comfenalco-entry.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://snrxwpedspkudndzmvtz.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_a4OIIdx0F98V_mGf_pN-RQ_ZfCYWe-1"
+      }
     }
   }
 }
