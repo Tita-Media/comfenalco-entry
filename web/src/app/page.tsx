@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { CfButton, CfInput, CfSelect, CfTable, CfAlert } from "comfenalco-ui-react";
+import type { CfTableColumn, CfTableRow } from "comfenalco-ui-wc";
 import AuthGate from "@/components/AuthGate";
 import { api } from "@/lib/supabaseBrowser";
 
@@ -13,7 +15,15 @@ type EventRow = {
   tickets: { count: number }[];
 };
 
+const COLUMNS: CfTableColumn[] = [
+  { header: "Evento", accessor: "name" },
+  { header: "Fecha", accessor: "fecha" },
+  { header: "Envío", accessor: "envio" },
+  { header: "Boletas", accessor: "boletas" },
+];
+
 function EventsPage() {
+  const router = useRouter();
   const [events, setEvents] = useState<EventRow[]>([]);
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
@@ -33,8 +43,11 @@ function EventsPage() {
     load();
   }, [load]);
 
-  async function createEvent(e: React.FormEvent) {
-    e.preventDefault();
+  async function createEvent() {
+    if (!name.trim()) {
+      setError("El nombre del evento es obligatorio.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -51,63 +64,75 @@ function EventsPage() {
     setBusy(false);
   }
 
+  const rows: CfTableRow[] = events.map((ev) => ({
+    id: ev.id,
+    name: ev.name,
+    fecha: ev.event_date ?? "—",
+    envio: ev.send_mode === "immediate" ? "Inmediato" : "Diferido",
+    boletas: String(ev.tickets?.[0]?.count ?? 0),
+  }));
+
   return (
-    <>
-      <h1>Eventos</h1>
+    <div style={{ display: "grid", gap: "1.5rem" }}>
+      <header>
+        <p className="eyebrow">Backoffice · Boletería</p>
+        <h1>Eventos</h1>
+      </header>
 
-      <div className="card">
-        <form onSubmit={createEvent} className="row">
-          <input
-            placeholder="Nombre del evento"
+      <section className="panel">
+        <h2>Crear evento</h2>
+        <div className="form-grid">
+          <CfInput
+            label="Nombre del evento"
+            placeholder="Carrera de las Flores"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            style={{ flex: 1, minWidth: 200 }}
+            onCfChange={(e) => setName(e.detail)}
           />
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <select value={sendMode} onChange={(e) => setSendMode(e.target.value as "deferred" | "immediate")}>
-            <option value="deferred">Envío diferido (al cierre)</option>
-            <option value="immediate">Envío inmediato</option>
-          </select>
-          <button disabled={busy}>Crear evento</button>
-        </form>
-        {error && <p className="error">{error}</p>}
-      </div>
+          <label className="native-field">
+            <span>Fecha</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
+          <CfSelect
+            label="Modo de envío"
+            value={sendMode}
+            options={[
+              { value: "deferred", label: "Diferido (al cierre)" },
+              { value: "immediate", label: "Inmediato" },
+            ]}
+            onCfChange={(e) => setSendMode(e.detail as "deferred" | "immediate")}
+          />
+          <div className="form-action">
+            <CfButton variant="primary" icon="add" isLoading={busy} onClick={createEvent}>
+              Crear evento
+            </CfButton>
+          </div>
+        </div>
+        {error && (
+          <div style={{ marginTop: "1rem" }}>
+            <CfAlert variant="error">{error}</CfAlert>
+          </div>
+        )}
+      </section>
 
-      <div className="table-wrap card">
-        <table>
-          <thead>
-            <tr>
-              <th>Evento</th>
-              <th>Fecha</th>
-              <th>Envío</th>
-              <th>Boletas</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((ev) => (
-              <tr key={ev.id}>
-                <td>{ev.name}</td>
-                <td>{ev.event_date ?? "—"}</td>
-                <td>{ev.send_mode === "immediate" ? "Inmediato" : "Diferido"}</td>
-                <td>{ev.tickets?.[0]?.count ?? 0}</td>
-                <td>
-                  <Link href={`/events/${ev.id}`}>Gestionar →</Link>
-                </td>
-              </tr>
-            ))}
-            {events.length === 0 && (
-              <tr>
-                <td colSpan={5} className="muted">
-                  Sin eventos todavía.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </>
+      <section className="panel">
+        <h2>Eventos activos</h2>
+        {rows.length === 0 ? (
+          <p className="muted">Aún no hay eventos. Crea el primero arriba.</p>
+        ) : (
+          <CfTable
+            columns={COLUMNS}
+            data={rows}
+            rowKeyField="id"
+            rowClickable
+            ariaLabel="Listado de eventos"
+            onCfRowClick={(e) => router.push(`/events/${e.detail.id}`)}
+          />
+        )}
+        <p className="muted" style={{ marginTop: "0.75rem" }}>
+          Haz clic en un evento para gestionar sus boletas.
+        </p>
+      </section>
+    </div>
   );
 }
 

@@ -1,74 +1,116 @@
-/* Estilo mínimo del piloto — se reemplaza por el sistema de diseño del cliente. */
+/* Capa fina sobre el design system Comfenalco (comfenalco-ui-react).
+   Los componentes Cf traen su propio look; aquí solo layout, contenedores
+   y los pocos campos nativos que no tienen equivalente Cf (fecha). */
 * { box-sizing: border-box; }
 
 :root {
-  --paper: #f7f8f8;
+  --brand: #005744;
+  --brand-600: #004f3e;
+  --paper: #f3f6f5;
   --card: #ffffff;
-  --ink: #1f2a2e;
-  --muted: #5f6e72;
-  --line: #e1e7e6;
-  --accent: #0e6b60;
+  --ink: #16211d;
+  --muted: #5c6b66;
+  --line: #e4eae8;
+  --ok: #3c7f37;
   --danger: #b3402f;
-  --warn: #9a6b12;
-  --ok: #2f7d4f;
 }
+
+/* El design system Comfenalco renderiza sus componentes en claro; fijamos la
+   app en claro para que el chrome combine con ellos (evita panel oscuro con
+   inputs blancos). */
 
 body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "Nunito Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
   line-height: 1.5;
 }
 
-main { max-width: 1000px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+main { max-width: 1040px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
 
-h1 { font-size: 1.5rem; margin: 0 0 1rem; }
-h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+h1 { font-size: 1.6rem; margin: 0.15rem 0 0; letter-spacing: -0.01em; color: var(--ink); }
+h2 { font-size: 1.05rem; margin: 0 0 1rem; color: var(--ink); }
 
-button {
-  background: var(--accent);
-  color: #fff;
-  border: 0;
-  border-radius: 6px;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
+.eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brand);
 }
-button:disabled { opacity: 0.5; cursor: default; }
-button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
 
-input, select, textarea {
+.muted { color: var(--muted); font-size: 0.9rem; }
+
+.panel {
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.5rem 0.7rem;
-  font-size: 0.9rem;
-  font-family: inherit;
+  border-radius: 14px;
+  padding: 1.5rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1.2fr auto;
+  gap: 1rem;
+  align-items: end;
+}
+.form-action { display: flex; }
+@media (max-width: 720px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
+/* Campo nativo (fecha) con look afín a CfInput */
+.native-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.native-field > span { font-size: 0.85rem; font-weight: 600; color: var(--ink); }
+.native-field input {
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 0.85rem;
+  font: inherit;
   background: var(--card);
   color: var(--ink);
 }
+.native-field input:focus { outline: 2px solid var(--brand); outline-offset: 0; border-color: var(--brand); }
 
-.card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 1.25rem;
-  margin: 1rem 0;
+/* Header del detalle */
+.detail-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.live-dot { font-size: 0.82rem; font-weight: 700; }
+.live-dot.on { color: var(--ok); }
+.live-dot.off { color: var(--muted); }
+
+/* KPIs */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
 }
 
-.row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
-
-table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
-th { text-align: left; color: var(--muted); font-weight: 600; padding: 0.5rem 0.6rem; border-bottom: 2px solid var(--line); white-space: nowrap; }
-td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+/* Tabla de boletas (con acciones por fila; no encaja en CfTable data-driven) */
 .table-wrap { overflow-x: auto; }
+table.tickets { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+table.tickets th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 2px solid var(--line);
+  white-space: nowrap;
+}
+table.tickets td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.tickets tr:last-child td { border-bottom: none; }
+.cell-actions { display: flex; gap: 0.4rem; }
 
-.pill { display: inline-block; padding: 0.1rem 0.6rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
-.pill.pending  { background: #eef1f0; color: var(--muted); }
-.pill.issued   { background: #f2ecdc; color: var(--warn); }
-.pill.redeemed { background: #e4f0e8; color: var(--ok); }
+/* Login */
+.login-wrap { min-height: 70vh; display: grid; place-items: center; }
+.login-card { width: 100%; max-width: 380px; display: grid; gap: 1rem; }
+.native-field input[type="password"] { width: 100%; }
 
-.error { color: var(--danger); font-size: 0.85rem; }
-.muted { color: var(--muted); font-size: 0.85rem; }
+.toolbar { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+.stack { display: grid; gap: 1.25rem; }

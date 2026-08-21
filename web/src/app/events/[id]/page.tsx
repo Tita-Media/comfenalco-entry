@@ -4,6 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import QRCode from "qrcode";
+import {
+  CfButton,
+  CfBadge,
+  CfAlert,
+  CfKpiMetric,
+  CfModal,
+} from "comfenalco-ui-react";
 import AuthGate from "@/components/AuthGate";
 import { api, supabaseBrowser } from "@/lib/supabaseBrowser";
 
@@ -19,10 +26,10 @@ type Ticket = {
   redeemed_by: string | null;
 };
 
-const STATUS_LABEL: Record<Ticket["status"], string> = {
-  pending: "Pendiente",
-  issued: "Emitida",
-  redeemed: "Validada",
+const STATUS: Record<Ticket["status"], { label: string; variant: "secondary" | "warning" | "success" }> = {
+  pending: { label: "Pendiente", variant: "secondary" },
+  issued: { label: "Emitida", variant: "warning" },
+  redeemed: { label: "Validada", variant: "success" },
 };
 
 function EventDetail() {
@@ -47,8 +54,7 @@ function EventDetail() {
     load();
   }, [load]);
 
-  // Suscripción en vivo: cuando la app redime una boleta de este evento,
-  // Supabase Realtime nos avisa y refrescamos la grilla al instante.
+  // Suscripción en vivo: cuando la app redime una boleta, refrescamos al instante.
   useEffect(() => {
     const sb = supabaseBrowser();
     let channel: ReturnType<typeof sb.channel> | null = null;
@@ -83,7 +89,6 @@ function EventDetail() {
   }
 
   function importCsv() {
-    // Formato: nombre,email,documento (una reserva por línea)
     const rows = csv
       .split("\n")
       .map((l) => l.trim())
@@ -136,126 +141,138 @@ function EventDetail() {
   };
 
   return (
-    <>
-      <p>
-        <Link href="/">← Eventos</Link>
-      </p>
-      <h1>Gestión de boletas</h1>
-      <p className="muted">
-        {tickets.length} reservas · {counts.pending} pendientes · {counts.issued} emitidas ·{" "}
-        {counts.redeemed} validadas{" "}
-        <span
-          title={live ? "Actualización en vivo activa" : "Reconectando…"}
-          style={{
-            marginLeft: 8,
-            fontSize: "0.8rem",
-            color: live ? "var(--ok)" : "var(--muted)",
-            fontWeight: 600,
-          }}
-        >
+    <div className="stack">
+      <div className="detail-top">
+        <div>
+          <Link href="/" className="eyebrow" style={{ textDecoration: "none" }}>
+            ← Eventos
+          </Link>
+          <h1>Gestión de boletas</h1>
+        </div>
+        <span className={`live-dot ${live ? "on" : "off"}`} title={live ? "Actualización en vivo" : "Reconectando…"}>
           ● {live ? "En vivo" : "…"}
         </span>
-      </p>
+      </div>
 
-      <div className="card">
+      <div className="kpi-row">
+        <CfKpiMetric label="Reservas" value={String(tickets.length)} icon="confirmation_number" />
+        <CfKpiMetric label="Pendientes" value={String(counts.pending)} icon="schedule" />
+        <CfKpiMetric label="Emitidas" value={String(counts.issued)} icon="mail" />
+        <CfKpiMetric label="Validadas" value={String(counts.redeemed)} icon="check_circle" />
+      </div>
+
+      <section className="panel">
         <h2>1 · Cargar reservas</h2>
-        <p className="muted">
-          Una por línea: <code>nombre,email,documento</code>. (En producción esto lo alimenta la
-          integración con el servicio de reportería.)
+        <p className="muted" style={{ marginTop: 0 }}>
+          Una por línea: <code>nombre,email,documento</code>. En producción esto lo alimenta la
+          integración con el servicio de reportería.
         </p>
         <textarea
           rows={4}
-          style={{ width: "100%" }}
-          placeholder={"María Pérez,maria@example.com,10203040\nJuan Gómez,juan@example.com,50607080"}
           value={csv}
           onChange={(e) => setCsv(e.target.value)}
+          placeholder={"María Pérez,maria@example.com,10203040\nJuan Gómez,juan@example.com,50607080"}
+          style={{
+            width: "100%",
+            border: "1px solid var(--line)",
+            borderRadius: 10,
+            padding: "0.7rem 0.85rem",
+            font: "inherit",
+            background: "var(--card)",
+            color: "var(--ink)",
+            resize: "vertical",
+          }}
         />
-        <div className="row" style={{ marginTop: "0.6rem" }}>
-          <button onClick={importCsv} disabled={busy || !csv.trim()}>
+        <div className="toolbar" style={{ marginTop: "0.85rem" }}>
+          <CfButton variant="primary" icon="upload" isLoading={busy} disabled={!csv.trim()} onClick={importCsv}>
             Cargar reservas
-          </button>
-          <button className="secondary" onClick={generate} disabled={busy || counts.pending === 0}>
+          </CfButton>
+          <CfButton variant="secondary" icon="qr_code_2" disabled={busy || counts.pending === 0} onClick={generate}>
             2 · Generar boletas ({counts.pending})
-          </button>
-          <button className="secondary" onClick={() => sendEmails()} disabled={busy}>
+          </CfButton>
+          <CfButton variant="secondary" icon="send" disabled={busy} onClick={() => sendEmails()}>
             3 · Enviar correos del lote
-          </button>
-          <button className="secondary" onClick={load} disabled={busy}>
+          </CfButton>
+          <CfButton variant="tertiary" icon="refresh" disabled={busy} onClick={load}>
             Actualizar
-          </button>
+          </CfButton>
         </div>
-        {msg && <p className="muted">{msg}</p>}
-        {error && <p className="error">{error}</p>}
-      </div>
+        {msg && <div style={{ marginTop: "0.85rem" }}><CfAlert variant="success">{msg}</CfAlert></div>}
+        {error && <div style={{ marginTop: "0.85rem" }}><CfAlert variant="error">{error}</CfAlert></div>}
+      </section>
 
-      {qrPreview && (
-        <div className="card" style={{ textAlign: "center" }}>
-          <p>
-            <strong>{qrPreview.name}</strong>
-          </p>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qrPreview.dataUrl} alt={`QR de ${qrPreview.name}`} width={220} height={220} />
-          <div>
-            <button className="secondary" onClick={() => setQrPreview(null)}>
-              Cerrar
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="table-wrap card">
-        <table>
-          <thead>
-            <tr>
-              <th>Asistente</th>
-              <th>Email</th>
-              <th>Documento</th>
-              <th>Estado</th>
-              <th>Correo</th>
-              <th>Validación</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {tickets.map((t) => (
-              <tr key={t.id}>
-                <td>{t.attendee_name}</td>
-                <td>{t.attendee_email}</td>
-                <td>{t.attendee_doc ?? "—"}</td>
-                <td>
-                  <span className={`pill ${t.status}`}>{STATUS_LABEL[t.status]}</span>
-                </td>
-                <td>{t.email_sent_at ? new Date(t.email_sent_at).toLocaleString() : "—"}</td>
-                <td>
-                  {t.redeemed_at
-                    ? `${new Date(t.redeemed_at).toLocaleString()} · ${t.redeemed_by ?? ""}`
-                    : "—"}
-                </td>
-                <td className="row">
-                  {t.token && (
-                    <button className="secondary" onClick={() => showQr(t)}>
-                      QR
-                    </button>
-                  )}
-                  {t.status === "issued" && (
-                    <button className="secondary" onClick={() => sendEmails(t.id)} disabled={busy}>
-                      Reenviar
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {tickets.length === 0 && (
+      <section className="panel">
+        <h2>Boletas</h2>
+        <div className="table-wrap">
+          <table className="tickets">
+            <thead>
               <tr>
-                <td colSpan={7} className="muted">
-                  Sin reservas cargadas.
-                </td>
+                <th>Asistente</th>
+                <th>Email</th>
+                <th>Documento</th>
+                <th>Estado</th>
+                <th>Correo</th>
+                <th>Validación</th>
+                <th></th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </>
+            </thead>
+            <tbody>
+              {tickets.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.attendee_name}</td>
+                  <td>{t.attendee_email}</td>
+                  <td>{t.attendee_doc ?? "—"}</td>
+                  <td>
+                    <CfBadge variant={STATUS[t.status].variant}>{STATUS[t.status].label}</CfBadge>
+                  </td>
+                  <td>{t.email_sent_at ? new Date(t.email_sent_at).toLocaleString() : "—"}</td>
+                  <td>
+                    {t.redeemed_at
+                      ? `${new Date(t.redeemed_at).toLocaleString()} · ${t.redeemed_by ?? ""}`
+                      : "—"}
+                  </td>
+                  <td>
+                    <div className="cell-actions">
+                      {t.token && (
+                        <CfButton variant="tertiary" size="md" icon="qr_code_2" onClick={() => showQr(t)}>
+                          QR
+                        </CfButton>
+                      )}
+                      {t.status === "issued" && (
+                        <CfButton variant="link" size="md" disabled={busy} onClick={() => sendEmails(t.id)}>
+                          Reenviar
+                        </CfButton>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {tickets.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="muted">
+                    Sin reservas cargadas.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <CfModal
+        isOpen={Boolean(qrPreview)}
+        modalTitle={qrPreview ? `QR · ${qrPreview.name}` : "QR"}
+        size="sm"
+        onCfClose={() => setQrPreview(null)}
+      >
+        {qrPreview && (
+          <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrPreview.dataUrl} alt={`QR de ${qrPreview.name}`} width={240} height={240} />
+          </div>
+        )}
+      </CfModal>
+    </div>
   );
 }
 

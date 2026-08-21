@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "comfenalco-ui-react/styles";
 import "./globals.css";
 
 export const metadata: Metadata = {

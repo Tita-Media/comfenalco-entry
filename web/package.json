@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "comfenalco-ui-react": "file:vendor/comfenalco-ui-react-0.0.1.tgz",
+    "comfenalco-ui-wc": "file:vendor/comfenalco-ui-wc-0.0.1.tgz",
     "next": "^14.2.5",
     "nodemailer": "^6.9.14",
     "qrcode": "^1.5.4",
