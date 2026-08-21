@@ -5,12 +5,18 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
     "splash": {
-      "backgroundColor": "#0e6b60",
+      "image": "./assets/splash.png",
+      "backgroundColor": "#005744",
       "resizeMode": "contain"
     },
     "android": {
       "package": "com.titamedia.tiquetera",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#005744"
+      },
       "permissions": [
         "CAMERA",
         "android.permission.CAMERA",

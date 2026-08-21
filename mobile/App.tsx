@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -16,6 +17,7 @@ import { StatusBar } from "expo-status-bar";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { createClient, type Session } from "@supabase/supabase-js";
 
+const LOGO = require("./assets/logo.png");
 const API_URL = process.env.EXPO_PUBLIC_API_URL!;
 const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_URL!,
@@ -83,15 +85,13 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
       <View style={styles.header}>
-        <Text style={styles.brand}>Tiquetera</Text>
+        <Image source={LOGO} style={styles.headerLogo} resizeMode="contain" />
         <Pressable hitSlop={10} onPress={() => supabase.auth.signOut()}>
           <Text style={styles.headerLink}>Salir</Text>
         </Pressable>
       </View>
 
-      <View style={styles.content}>
-        {tab === "scan" ? <Scanner /> : <History />}
-      </View>
+      <View style={styles.content}>{tab === "scan" ? <Scanner /> : <History />}</View>
 
       <View style={styles.tabbar}>
         <TabButton label="Lector" glyph="⛶" active={tab === "scan"} onPress={() => setTab("scan")} />
@@ -154,7 +154,15 @@ function Scanner() {
     lastToken.current = null;
   }
 
-  if (!permission?.granted) {
+  if (!permission) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={C.brand} size="large" />
+      </View>
+    );
+  }
+
+  if (!permission.granted) {
     return (
       <View style={styles.center}>
         <Text style={styles.msg}>Se necesita acceso a la cámara para escanear.</Text>
@@ -187,12 +195,16 @@ function Scanner() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={styles.scannerRoot}>
       <CameraView
-        style={{ flex: 1 }}
+        style={StyleSheet.absoluteFill}
+        facing="back"
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         onBarcodeScanned={({ data }) => handleScan(data)}
       />
+      <View style={styles.frameWrap} pointerEvents="none">
+        <View style={styles.frame} />
+      </View>
       <View style={styles.overlay}>
         {busy ? (
           <ActivityIndicator color={C.white} size="large" />
@@ -232,7 +244,7 @@ function History() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setItems((await res.json()) as Ingreso[]);
     } catch {
-      setError("No se pudo cargar el listado. Reintenta.");
+      setError("No se pudo cargar el listado. Desliza para reintentar.");
     }
     setLoading(false);
   }, []);
@@ -241,45 +253,47 @@ function History() {
     load();
   }, [load]);
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={C.brand} size="large" />
-      </View>
-    );
-  }
-
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>Ingresos realizados</Text>
         <Text style={styles.listCount}>{items.length}</Text>
       </View>
-      {error && <Text style={[styles.msg, { color: C.error }]}>{error}</Text>}
-      <FlatList
-        data={items}
-        keyExtractor={(i) => i.id}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={C.brand} />}
-        contentContainerStyle={items.length === 0 ? styles.center : { padding: 12 }}
-        ListEmptyComponent={<Text style={styles.msg}>Aún no hay ingresos registrados.</Text>}
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View style={styles.rowDot} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowName}>{item.attendee_name}</Text>
-              <Text style={styles.rowMeta}>
-                {item.events?.name ?? "Evento"}
-                {item.attendee_doc ? ` · CC ${item.attendee_doc}` : ""}
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={C.brand} size="large" />
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(i) => i.id}
+          refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={C.brand} />}
+          contentContainerStyle={items.length === 0 ? styles.center : { padding: 12 }}
+          ListEmptyComponent={
+            <Text style={[styles.msg, error ? { color: C.error } : null]}>
+              {error ?? "Aún no hay ingresos registrados."}
+            </Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.row}>
+              <View style={styles.rowDot} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowName}>{item.attendee_name}</Text>
+                <Text style={styles.rowMeta}>
+                  {item.events?.name ?? "Evento"}
+                  {item.attendee_doc ? ` · CC ${item.attendee_doc}` : ""}
+                </Text>
+              </View>
+              <Text style={styles.rowTime}>
+                {item.redeemed_at
+                  ? new Date(item.redeemed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  : ""}
               </Text>
             </View>
-            <Text style={styles.rowTime}>
-              {item.redeemed_at
-                ? new Date(item.redeemed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                : ""}
-            </Text>
-          </View>
-        )}
-      />
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -301,7 +315,7 @@ function Login() {
   return (
     <SafeAreaView style={[styles.container, styles.center]}>
       <StatusBar style="dark" />
-      <Text style={styles.loginBrand}>Tiquetera</Text>
+      <Image source={LOGO} style={styles.loginLogo} resizeMode="contain" />
       <Text style={styles.msg}>Acceso de operadores</Text>
       <TextInput
         style={styles.input}
@@ -344,7 +358,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: C.line,
   },
-  brand: { fontSize: 20, fontWeight: "800", color: C.brand },
+  headerLogo: { width: 150, height: 34 },
   headerLink: { color: C.brand, fontWeight: "700", fontSize: 15 },
 
   tabbar: {
@@ -378,8 +392,17 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: C.ink,
   },
-  loginBrand: { fontSize: 24, fontWeight: "800", color: C.brand },
+  loginLogo: { width: 220, height: 80, marginBottom: 4 },
 
+  scannerRoot: { flex: 1, backgroundColor: "#000000", position: "relative" },
+  frameWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  frame: {
+    width: 240,
+    height: 240,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.9)",
+    borderRadius: 20,
+  },
   overlay: {
     position: "absolute",
     bottom: 0,

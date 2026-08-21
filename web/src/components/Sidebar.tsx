@@ -16,7 +16,7 @@ type NavItem = {
 // Secciones. Agregar aquí las nuevas a medida que se implementen.
 const NAV: NavItem[] = [
   { label: "Eventos", href: "/", glyph: "▤", match: (p) => p === "/" || p.startsWith("/events") },
-  { label: "Ingresos", glyph: "≣", soon: true },
+  { label: "Ingresos", href: "/ingresos", glyph: "≣", match: (p) => p.startsWith("/ingresos") },
   { label: "Reportes", glyph: "◪", soon: true },
   { label: "Ajustes", glyph: "⚙", soon: true },
 ];
