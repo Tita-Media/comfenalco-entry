@@ -9,3 +9,7 @@ dist/
 *.tsbuildinfo
 next-env.d.ts
 .vercel
+
+# Expo native dirs (se regeneran con prebuild en EAS)
+mobile/android/
+mobile/ios/

@@ -5,15 +5,31 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0e6b60",
+      "resizeMode": "contain"
+    },
     "android": {
       "package": "com.titamedia.tiquetera",
-      "permissions": ["CAMERA"]
+      "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       [
         "expo-camera",
-        { "cameraPermission": "La app necesita la cámara para escanear los códigos QR de ingreso." }
+        {
+          "cameraPermission": "La app necesita la cámara para escanear los códigos QR de ingreso."
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f7c75696-31de-4af5-84f3-f5fc1b6b0a37"
+      }
+    },
+    "owner": "eugenio.jauregui"
   }
 }
