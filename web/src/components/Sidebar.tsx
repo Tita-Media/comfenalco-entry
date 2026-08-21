@@ -28,7 +28,7 @@ export default function Sidebar({ email }: { email?: string | null }) {
     <aside className="sidebar">
       <div className="sidebar-logo">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/comfenalco-logo.svg" alt="Comfenalco Antioquia" />
+        <img src="/comfenalco-logo.png" alt="Comfenalco Antioquia" />
       </div>
 
       <nav className="nav">

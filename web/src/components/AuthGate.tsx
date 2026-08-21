@@ -45,7 +45,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <div className="panel login-card">
           <div className="login-logo">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/comfenalco-logo.svg" alt="Comfenalco Antioquia" />
+            <img src="/comfenalco-logo.png" alt="Comfenalco Antioquia" />
           </div>
           <div>
             <p className="eyebrow">Tiquetera</p>
