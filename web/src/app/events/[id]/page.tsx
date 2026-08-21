@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import QRCode from "qrcode";
 import AuthGate from "@/components/AuthGate";
-import { api } from "@/lib/supabaseBrowser";
+import { api, supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type Ticket = {
   id: string;
@@ -33,6 +33,7 @@ function EventDetail() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [qrPreview, setQrPreview] = useState<{ name: string; dataUrl: string } | null>(null);
+  const [live, setLive] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -45,6 +46,28 @@ function EventDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Suscripción en vivo: cuando la app redime una boleta de este evento,
+  // Supabase Realtime nos avisa y refrescamos la grilla al instante.
+  useEffect(() => {
+    const sb = supabaseBrowser();
+    let channel: ReturnType<typeof sb.channel> | null = null;
+    (async () => {
+      const { data } = await sb.auth.getSession();
+      if (data.session) sb.realtime.setAuth(data.session.access_token);
+      channel = sb
+        .channel(`tickets-${id}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "tickets", filter: `event_id=eq.${id}` },
+          () => load()
+        )
+        .subscribe((status) => setLive(status === "SUBSCRIBED"));
+    })();
+    return () => {
+      if (channel) sb.removeChannel(channel);
+    };
+  }, [id, load]);
 
   async function run(fn: () => Promise<string>) {
     setBusy(true);
@@ -120,7 +143,18 @@ function EventDetail() {
       <h1>Gestión de boletas</h1>
       <p className="muted">
         {tickets.length} reservas · {counts.pending} pendientes · {counts.issued} emitidas ·{" "}
-        {counts.redeemed} validadas
+        {counts.redeemed} validadas{" "}
+        <span
+          title={live ? "Actualización en vivo activa" : "Reconectando…"}
+          style={{
+            marginLeft: 8,
+            fontSize: "0.8rem",
+            color: live ? "var(--ok)" : "var(--muted)",
+            fontWeight: 600,
+          }}
+        >
+          ● {live ? "En vivo" : "…"}
+        </span>
       </p>
 
       <div className="card">
