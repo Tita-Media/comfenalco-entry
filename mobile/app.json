@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Tiquetera",
+    "slug": "tiquetera",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.titamedia.tiquetera",
+      "permissions": ["CAMERA"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        { "cameraPermission": "La app necesita la cámara para escanear los códigos QR de ingreso." }
+      ]
+    ]
+  }
+}
