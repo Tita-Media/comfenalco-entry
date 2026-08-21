@@ -20,6 +20,7 @@ export async function api<T = unknown>(path: string, init?: RequestInit): Promis
   const token = data.session?.access_token;
   const res = await fetch(path, {
     ...init,
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

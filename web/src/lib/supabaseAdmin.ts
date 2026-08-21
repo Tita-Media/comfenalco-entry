@@ -8,7 +8,15 @@ export function supabaseAdmin(): SupabaseClient {
     client = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false, autoRefreshToken: false } }
+      {
+        auth: { persistSession: false, autoRefreshToken: false },
+        // Next.js parchea fetch y cachea los GET por defecto; forzar no-store
+        // para que las lecturas a PostgREST siempre traigan datos frescos.
+        global: {
+          fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+            fetch(input, { ...init, cache: "no-store" }),
+        },
+      }
     );
   }
   return client;
