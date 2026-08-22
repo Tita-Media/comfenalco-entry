@@ -7,6 +7,7 @@ import {
   Pressable,
   RefreshControl,
   SafeAreaView,
+  ScrollView,
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
@@ -15,16 +16,17 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Location from "expo-location";
 import { createClient, type Session } from "@supabase/supabase-js";
 
 const LOGO = require("./assets/logo.png");
+const APP_VERSION = "0.1.0";
 const API_URL = process.env.EXPO_PUBLIC_API_URL!;
 const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_URL!,
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Paleta del design system Comfenalco (kit-ui-library) replicada para RN.
 const C = {
   brand: "#005744",
   brandDark: "#004f3e",
@@ -42,10 +44,13 @@ const C = {
 
 const TOP_INSET = Platform.OS === "android" ? RNStatusBar.currentHeight ?? 24 : 0;
 
+type Tab = "scan" | "search" | "history" | "settings";
 type ScanResult = {
-  result: "ok" | "already_used" | "invalid" | "not_issued";
+  result: "ok" | "already_used" | "invalid" | "not_issued" | "full";
   attendee_name?: string;
   attendee_doc?: string;
+  multi?: boolean;
+  entry_number?: number;
   redeemed_at?: string;
   redeemed_by?: string;
 };
@@ -55,13 +60,14 @@ const RESULT_COLOR: Record<ScanResult["result"], string> = {
   already_used: C.warn,
   invalid: C.error,
   not_issued: C.error,
+  full: C.error,
 };
-
 const RESULT_TITLE: Record<ScanResult["result"], string> = {
   ok: "INGRESO VÁLIDO",
   already_used: "QR YA UTILIZADO",
   invalid: "CÓDIGO INVÁLIDO",
   not_issued: "BOLETA NO EMITIDA",
+  full: "AFORO COMPLETO",
 };
 
 async function authHeaders() {
@@ -69,9 +75,27 @@ async function authHeaders() {
   return { Authorization: `Bearer ${data.session?.access_token ?? ""}` };
 }
 
+/** Ubicación rápida (last-known, con fallback a lectura actual). No bloquea el escaneo si falla. */
+async function getGeo(): Promise<{ lat?: number; lng?: number; accuracy?: number }> {
+  try {
+    let { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== "granted") {
+      status = (await Location.requestForegroundPermissionsAsync()).status;
+    }
+    if (status !== "granted") return {};
+    const pos =
+      (await Location.getLastKnownPositionAsync()) ??
+      (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+    if (!pos) return {};
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy ?? undefined };
+  } catch {
+    return {};
+  }
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [tab, setTab] = useState<"scan" | "history">("scan");
+  const [tab, setTab] = useState<Tab>("scan");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -86,32 +110,26 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.header}>
         <Image source={LOGO} style={styles.headerLogo} resizeMode="contain" />
-        <Pressable hitSlop={10} onPress={() => supabase.auth.signOut()}>
-          <Text style={styles.headerLink}>Salir</Text>
-        </Pressable>
       </View>
 
-      <View style={styles.content}>{tab === "scan" ? <Scanner /> : <History />}</View>
+      <View style={styles.content}>
+        {tab === "scan" && <Scanner />}
+        {tab === "search" && <SearchScreen />}
+        {tab === "history" && <History />}
+        {tab === "settings" && <Settings email={session.user.email ?? null} />}
+      </View>
 
       <View style={styles.tabbar}>
         <TabButton label="Lector" glyph="⛶" active={tab === "scan"} onPress={() => setTab("scan")} />
+        <TabButton label="Buscar" glyph="⌕" active={tab === "search"} onPress={() => setTab("search")} />
         <TabButton label="Ingresos" glyph="≣" active={tab === "history"} onPress={() => setTab("history")} />
+        <TabButton label="Ajustes" glyph="⚙" active={tab === "settings"} onPress={() => setTab("settings")} />
       </View>
     </SafeAreaView>
   );
 }
 
-function TabButton({
-  label,
-  glyph,
-  active,
-  onPress,
-}: {
-  label: string;
-  glyph: string;
-  active: boolean;
-  onPress: () => void;
-}) {
+function TabButton({ label, glyph, active, onPress }: { label: string; glyph: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable style={styles.tab} onPress={onPress}>
       <View style={[styles.tabIndicator, active && styles.tabIndicatorActive]} />
@@ -135,14 +153,14 @@ function Scanner() {
     setBusy(true);
     setNetError(null);
     try {
+      const geo = await getGeo();
       const res = await fetch(`${API_URL}/api/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, ...geo }),
       });
       setScan((await res.json()) as ScanResult);
     } catch {
-      // TODO contingencia: encolar localmente y reintentar (Etapa 3 del plan)
       setNetError("Sin respuesta del sistema. Verifica la conexión y reintenta.");
       lastToken.current = null;
     }
@@ -155,13 +173,7 @@ function Scanner() {
     lastToken.current = null;
   }
 
-  if (!permission) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={C.brand} size="large" />
-      </View>
-    );
-  }
+  if (!permission) return <View style={styles.center}><ActivityIndicator color={C.brand} size="large" /></View>;
 
   if (!permission.granted) {
     return (
@@ -179,8 +191,9 @@ function Scanner() {
       <View style={[styles.result, { backgroundColor: RESULT_COLOR[scan.result] }]}>
         <Text style={styles.resultTitle}>{RESULT_TITLE[scan.result]}</Text>
         {scan.attendee_name && <Text style={styles.resultName}>{scan.attendee_name}</Text>}
-        {scan.result === "ok" && scan.attendee_doc && (
-          <Text style={styles.resultDetail}>Documento: {scan.attendee_doc}</Text>
+        {scan.result === "ok" && scan.attendee_doc && <Text style={styles.resultDetail}>Documento: {scan.attendee_doc}</Text>}
+        {scan.result === "ok" && scan.multi && scan.entry_number && (
+          <Text style={styles.resultDetail}>Ingreso #{scan.entry_number}</Text>
         )}
         {scan.result === "already_used" && scan.redeemed_at && (
           <Text style={styles.resultDetail}>
@@ -211,23 +224,122 @@ function Scanner() {
           onBarcodeScanned={({ data }) => handleScan(data)}
         />
       )}
-      <View style={styles.frameWrap} pointerEvents="none">
-        <View style={styles.frame} />
-      </View>
+      <View style={styles.frameWrap} pointerEvents="none"><View style={styles.frame} /></View>
       <View style={styles.overlay}>
         {busy ? (
           <ActivityIndicator color={C.white} size="large" />
         ) : netError ? (
           <>
             <Text style={styles.overlayError}>{netError}</Text>
-            <Pressable style={styles.lightBtn} onPress={next}>
-              <Text style={styles.lightBtnText}>Reintentar</Text>
-            </Pressable>
+            <Pressable style={styles.lightBtn} onPress={next}><Text style={styles.lightBtnText}>Reintentar</Text></Pressable>
           </>
         ) : (
           <Text style={styles.overlayText}>Apunta al código QR de la boleta</Text>
         )}
       </View>
+    </View>
+  );
+}
+
+type Found = {
+  id: string;
+  event_id: string;
+  attendee_name: string;
+  attendee_email: string;
+  attendee_doc: string | null;
+  status: "pending" | "issued" | "redeemed";
+  events: { name: string } | null;
+};
+
+function SearchScreen() {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<Found[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sentId, setSentId] = useState<string | null>(null);
+
+  async function search() {
+    if (q.trim().length < 3) {
+      setError("Escribe al menos 3 caracteres.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setSentId(null);
+    try {
+      const res = await fetch(`${API_URL}/api/tickets/search?q=${encodeURIComponent(q.trim())}`, {
+        headers: await authHeaders(),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Error");
+      setResults(json as Found[]);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setLoading(false);
+  }
+
+  async function resend(t: Found) {
+    setSentId(t.id);
+    try {
+      const res = await fetch(`${API_URL}/api/tickets/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify({ event_id: t.event_id, ticket_id: t.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Error");
+    } catch (e) {
+      setError((e as Error).message);
+      setSentId(null);
+    }
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.paper }}>
+      <View style={styles.searchBar}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Buscar por cédula o nombre"
+          placeholderTextColor={C.muted}
+          value={q}
+          onChangeText={setQ}
+          onSubmitEditing={search}
+          returnKeyType="search"
+        />
+        <Pressable style={styles.searchBtn} onPress={search}>
+          <Text style={styles.searchBtnText}>Buscar</Text>
+        </Pressable>
+      </View>
+      {error && <Text style={[styles.msg, { color: C.error }]}>{error}</Text>}
+      {loading ? (
+        <View style={styles.center}><ActivityIndicator color={C.brand} size="large" /></View>
+      ) : (
+        <FlatList
+          data={results}
+          keyExtractor={(t) => t.id}
+          contentContainerStyle={results.length === 0 ? styles.center : { padding: 12 }}
+          ListEmptyComponent={<Text style={styles.msg}>Busca una boleta para reenviar el QR.</Text>}
+          renderItem={({ item }) => (
+            <View style={styles.card}>
+              <Text style={styles.rowName}>{item.attendee_name}</Text>
+              <Text style={styles.rowMeta}>
+                {item.attendee_doc ? `CC ${item.attendee_doc} · ` : ""}{item.attendee_email}
+              </Text>
+              <Text style={styles.rowMeta}>{item.events?.name ?? "Evento"} · {item.status}</Text>
+              <Pressable
+                style={[styles.primaryBtn, styles.resendBtn, sentId === item.id && { backgroundColor: C.ok }]}
+                onPress={() => resend(item)}
+                disabled={item.status === "pending"}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {sentId === item.id ? "Reenviado ✓" : item.status === "pending" ? "Boleta sin emitir" : "Reenviar QR"}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -268,42 +380,80 @@ function History() {
         <Text style={styles.listTitle}>Ingresos realizados</Text>
         <Text style={styles.listCount}>{items.length}</Text>
       </View>
-
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={C.brand} size="large" />
-        </View>
+        <View style={styles.center}><ActivityIndicator color={C.brand} size="large" /></View>
       ) : (
         <FlatList
           data={items}
           keyExtractor={(i) => i.id}
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={C.brand} />}
           contentContainerStyle={items.length === 0 ? styles.center : { padding: 12 }}
-          ListEmptyComponent={
-            <Text style={[styles.msg, error ? { color: C.error } : null]}>
-              {error ?? "Aún no hay ingresos registrados."}
-            </Text>
-          }
+          ListEmptyComponent={<Text style={[styles.msg, error ? { color: C.error } : null]}>{error ?? "Aún no hay ingresos registrados."}</Text>}
           renderItem={({ item }) => (
             <View style={styles.row}>
               <View style={styles.rowDot} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowName}>{item.attendee_name}</Text>
                 <Text style={styles.rowMeta}>
-                  {item.events?.name ?? "Evento"}
-                  {item.attendee_doc ? ` · CC ${item.attendee_doc}` : ""}
+                  {item.events?.name ?? "Evento"}{item.attendee_doc ? ` · CC ${item.attendee_doc}` : ""}
                 </Text>
               </View>
               <Text style={styles.rowTime}>
-                {item.redeemed_at
-                  ? new Date(item.redeemed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                  : ""}
+                {item.redeemed_at ? new Date(item.redeemed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
               </Text>
             </View>
           )}
         />
       )}
     </View>
+  );
+}
+
+function Settings({ email }: { email: string | null }) {
+  const [geoStatus, setGeoStatus] = useState<string>("desconocido");
+
+  useEffect(() => {
+    Location.getForegroundPermissionsAsync().then((p) => setGeoStatus(p.status));
+  }, []);
+
+  async function askGeo() {
+    const p = await Location.requestForegroundPermissionsAsync();
+    setGeoStatus(p.status);
+  }
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.paper }} contentContainerStyle={{ padding: 16 }}>
+      <Text style={styles.listTitle}>Ajustes</Text>
+
+      <View style={styles.settingBlock}>
+        <Text style={styles.settingLabel}>Operador</Text>
+        <Text style={styles.settingValue}>{email ?? "—"}</Text>
+      </View>
+
+      <View style={styles.settingBlock}>
+        <Text style={styles.settingLabel}>Servidor</Text>
+        <Text style={styles.settingValue}>{API_URL}</Text>
+      </View>
+
+      <View style={styles.settingBlock}>
+        <Text style={styles.settingLabel}>Ubicación (geolocalización de ingresos)</Text>
+        <Text style={styles.settingValue}>Permiso: {geoStatus === "granted" ? "concedido" : geoStatus}</Text>
+        {geoStatus !== "granted" && (
+          <Pressable style={[styles.primaryBtn, { marginTop: 10, alignSelf: "flex-start" }]} onPress={askGeo}>
+            <Text style={styles.primaryBtnText}>Permitir ubicación</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <View style={styles.settingBlock}>
+        <Text style={styles.settingLabel}>Versión</Text>
+        <Text style={styles.settingValue}>Tiquetera {APP_VERSION}</Text>
+      </View>
+
+      <Pressable style={[styles.logoutBtn]} onPress={() => supabase.auth.signOut()}>
+        <Text style={styles.logoutBtnText}>Cerrar sesión</Text>
+      </Pressable>
+    </ScrollView>
   );
 }
 
@@ -326,23 +476,8 @@ function Login() {
       <StatusBar style="dark" />
       <Image source={LOGO} style={styles.loginLogo} resizeMode="contain" />
       <Text style={styles.msg}>Acceso de operadores</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Correo"
-        placeholderTextColor={C.muted}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Contraseña"
-        placeholderTextColor={C.muted}
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
+      <TextInput style={styles.input} placeholder="Correo" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+      <TextInput style={styles.input} placeholder="Contraseña" placeholderTextColor={C.muted} secureTextEntry value={password} onChangeText={setPassword} />
       {error && <Text style={[styles.msg, { color: C.error }]}>{error}</Text>}
       <Pressable style={[styles.primaryBtn, { marginTop: 12 }]} onPress={login} disabled={busy}>
         <Text style={styles.primaryBtnText}>{busy ? "Ingresando…" : "Ingresar"}</Text>
@@ -368,59 +503,28 @@ const styles = StyleSheet.create({
     borderBottomColor: C.line,
   },
   headerLogo: { width: 150, height: 34 },
-  headerLink: { color: C.brand, fontWeight: "700", fontSize: 15 },
 
-  tabbar: {
-    flexDirection: "row",
-    backgroundColor: C.card,
-    borderTopWidth: 1,
-    borderTopColor: C.line,
-    paddingBottom: Platform.OS === "ios" ? 18 : 8,
-  },
+  tabbar: { flexDirection: "row", backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.line, paddingBottom: Platform.OS === "ios" ? 18 : 8 },
   tab: { flex: 1, alignItems: "center", paddingTop: 8, paddingBottom: 6 },
-  tabIndicator: { height: 3, width: 34, borderRadius: 2, backgroundColor: "transparent", marginBottom: 6 },
+  tabIndicator: { height: 3, width: 30, borderRadius: 2, backgroundColor: "transparent", marginBottom: 6 },
   tabIndicatorActive: { backgroundColor: C.brand },
-  tabGlyph: { fontSize: 20, lineHeight: 22 },
-  tabLabel: { fontSize: 12, fontWeight: "700", marginTop: 2 },
+  tabGlyph: { fontSize: 19, lineHeight: 21 },
+  tabLabel: { fontSize: 11.5, fontWeight: "700", marginTop: 2 },
 
-  msg: { color: C.muted, marginVertical: 8, textAlign: "center" },
+  msg: { color: C.muted, marginVertical: 8, textAlign: "center", paddingHorizontal: 16 },
 
   primaryBtn: { backgroundColor: C.brand, borderRadius: 10, paddingVertical: 14, paddingHorizontal: 28 },
-  primaryBtnText: { color: C.white, fontWeight: "700", fontSize: 15 },
+  primaryBtnText: { color: C.white, fontWeight: "700", fontSize: 15, textAlign: "center" },
   lightBtn: { backgroundColor: C.white, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 28, marginTop: 28 },
   lightBtnText: { color: C.ink, fontWeight: "700", fontSize: 15 },
 
-  input: {
-    width: "100%",
-    maxWidth: 320,
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.line,
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 10,
-    color: C.ink,
-  },
+  input: { width: "100%", maxWidth: 320, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, marginTop: 10, color: C.ink },
   loginLogo: { width: 220, height: 80, marginBottom: 4 },
 
   scannerRoot: { flex: 1, backgroundColor: "#000000", position: "relative" },
   frameWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
-  frame: {
-    width: 240,
-    height: 240,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.9)",
-    borderRadius: 20,
-  },
-  overlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 24,
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
+  frame: { width: 240, height: 240, borderWidth: 3, borderColor: "rgba(255,255,255,0.9)", borderRadius: 20 },
+  overlay: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 24, alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" },
   overlayText: { color: C.white, fontSize: 16 },
   overlayError: { color: "#ffb4a4", fontSize: 15, textAlign: "center", marginBottom: 12 },
 
@@ -429,28 +533,25 @@ const styles = StyleSheet.create({
   resultName: { color: C.white, fontSize: 20, marginTop: 12, fontWeight: "700", textAlign: "center" },
   resultDetail: { color: "rgba(255,255,255,0.9)", marginTop: 8, textAlign: "center" },
 
-  listHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
-  },
+  searchBar: { flexDirection: "row", gap: 8, padding: 12 },
+  searchInput: { flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10, paddingHorizontal: 12, color: C.ink },
+  searchBtn: { backgroundColor: C.brand, borderRadius: 10, paddingHorizontal: 18, justifyContent: "center" },
+  searchBtnText: { color: C.white, fontWeight: "700" },
+  resendBtn: { marginTop: 10, paddingVertical: 10 },
+
+  listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 },
   listTitle: { fontSize: 16, fontWeight: "800", color: C.ink },
   listCount: { fontSize: 14, fontWeight: "700", color: C.brand },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.line,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-  },
+  card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 12, marginBottom: 8 },
+  row: { flexDirection: "row", alignItems: "center", backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 12, marginBottom: 8 },
   rowDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.ok, marginRight: 12 },
   rowName: { fontSize: 15, fontWeight: "700", color: C.ink },
   rowMeta: { fontSize: 12.5, color: C.muted, marginTop: 2 },
   rowTime: { fontSize: 13, fontWeight: "700", color: C.muted, marginLeft: 8 },
+
+  settingBlock: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 14, marginTop: 12 },
+  settingLabel: { fontSize: 12.5, color: C.muted, fontWeight: "600" },
+  settingValue: { fontSize: 15, color: C.ink, marginTop: 4 },
+  logoutBtn: { marginTop: 24, borderWidth: 1, borderColor: C.error, borderRadius: 10, paddingVertical: 13, alignItems: "center" },
+  logoutBtnText: { color: C.error, fontWeight: "700", fontSize: 15 },
 });

@@ -17,8 +17,8 @@ type NavItem = {
 const NAV: NavItem[] = [
   { label: "Eventos", href: "/", glyph: "▤", match: (p) => p === "/" || p.startsWith("/events") },
   { label: "Ingresos", href: "/ingresos", glyph: "≣", match: (p) => p.startsWith("/ingresos") },
-  { label: "Reportes", glyph: "◪", soon: true },
-  { label: "Ajustes", glyph: "⚙", soon: true },
+  { label: "Operadores", href: "/operadores", glyph: "☺", match: (p) => p.startsWith("/operadores") },
+  { label: "Reportes", href: "/reportes", glyph: "◪", match: (p) => p.startsWith("/reportes") },
 ];
 
 export default function Sidebar({ email }: { email?: string | null }) {

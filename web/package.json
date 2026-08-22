@@ -11,13 +11,16 @@
     "@supabase/supabase-js": "^2.45.0",
     "comfenalco-ui-react": "file:vendor/comfenalco-ui-react-0.0.1.tgz",
     "comfenalco-ui-wc": "file:vendor/comfenalco-ui-wc-0.0.1.tgz",
+    "leaflet": "^1.9.4",
     "next": "^14.2.5",
     "nodemailer": "^6.9.14",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-leaflet": "^4.2.1"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.12",
     "@types/node": "^20.14.0",
     "@types/nodemailer": "^6.4.15",
     "@types/qrcode": "^1.5.5",
