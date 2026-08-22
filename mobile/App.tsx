@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -96,6 +97,7 @@ async function getGeo(): Promise<{ lat?: number; lng?: number; accuracy?: number
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [tab, setTab] = useState<Tab>("scan");
+  const [contentH, setContentH] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -106,14 +108,17 @@ export default function App() {
   if (!session) return <Login />;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar style="dark" />
       <View style={styles.header}>
         <Image source={LOGO} style={styles.headerLogo} resizeMode="contain" />
       </View>
 
-      <View style={styles.content}>
-        {tab === "scan" && <Scanner />}
+      <View
+        style={styles.content}
+        onLayout={(e) => setContentH(e.nativeEvent.layout.height)}
+      >
+        {tab === "scan" && <Scanner height={contentH} />}
         {tab === "search" && <SearchScreen />}
         {tab === "history" && <History />}
         {tab === "settings" && <Settings email={session.user.email ?? null} />}
@@ -125,7 +130,7 @@ export default function App() {
         <TabButton label="Ingresos" glyph="≣" active={tab === "history"} onPress={() => setTab("history")} />
         <TabButton label="Ajustes" glyph="⚙" active={tab === "settings"} onPress={() => setTab("settings")} />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -139,13 +144,17 @@ function TabButton({ label, glyph, active, onPress }: { label: string; glyph: st
   );
 }
 
-function Scanner() {
+function Scanner({ height }: { height: number }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [netError, setNetError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const lastToken = useRef<string | null>(null);
+
+  // Altura explícita medida por el contenedor padre (evita que el flex colapse
+  // el área de cámara a 0 en algunos dispositivos). Fallback a flex:1.
+  const fill = height > 0 ? { height } : { flex: 1 as const };
 
   async function handleScan(token: string) {
     if (busy || scan || token === lastToken.current) return;
@@ -188,7 +197,7 @@ function Scanner() {
 
   if (scan) {
     return (
-      <View style={[styles.result, { backgroundColor: RESULT_COLOR[scan.result] }]}>
+      <View style={[styles.result, fill, { backgroundColor: RESULT_COLOR[scan.result] }]}>
         <Text style={styles.resultTitle}>{RESULT_TITLE[scan.result]}</Text>
         {scan.attendee_name && <Text style={styles.resultName}>{scan.attendee_name}</Text>}
         {scan.result === "ok" && scan.attendee_doc && <Text style={styles.resultDetail}>Documento: {scan.attendee_doc}</Text>}
@@ -209,7 +218,7 @@ function Scanner() {
   }
 
   return (
-    <View style={styles.scannerRoot}>
+    <View style={[styles.scannerRoot, fill]}>
       <CameraView
         style={StyleSheet.absoluteFillObject}
         facing="back"
@@ -424,6 +433,7 @@ function History() {
 }
 
 function Settings({ email }: { email: string | null }) {
+  const [camPermission, requestCam] = useCameraPermissions();
   const [geoStatus, setGeoStatus] = useState<string>("desconocido");
 
   useEffect(() => {
@@ -434,6 +444,15 @@ function Settings({ email }: { email: string | null }) {
     const p = await Location.requestForegroundPermissionsAsync();
     setGeoStatus(p.status);
   }
+
+  async function askCam() {
+    const p = await requestCam();
+    // Si el usuario ya la negó permanentemente, el sistema no vuelve a preguntar:
+    // lo llevamos a los ajustes del sistema.
+    if (!p.granted && !p.canAskAgain) Linking.openSettings();
+  }
+
+  const camGranted = camPermission?.granted;
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.paper }} contentContainerStyle={{ padding: 16 }}>
@@ -447,6 +466,19 @@ function Settings({ email }: { email: string | null }) {
       <View style={styles.settingBlock}>
         <Text style={styles.settingLabel}>Servidor</Text>
         <Text style={styles.settingValue}>{API_URL}</Text>
+      </View>
+
+      <View style={styles.settingBlock}>
+        <Text style={styles.settingLabel}>Cámara (lector de QR)</Text>
+        <Text style={styles.settingValue}>Permiso: {camGranted ? "concedido" : camPermission?.status ?? "desconocido"}</Text>
+        {!camGranted && (
+          <Pressable style={[styles.primaryBtn, { marginTop: 10, alignSelf: "flex-start" }]} onPress={askCam}>
+            <Text style={styles.primaryBtnText}>Permitir cámara</Text>
+          </Pressable>
+        )}
+        <Pressable style={{ marginTop: 10 }} onPress={() => Linking.openSettings()}>
+          <Text style={{ color: C.brand, fontWeight: "700" }}>Abrir ajustes del sistema</Text>
+        </Pressable>
       </View>
 
       <View style={styles.settingBlock}>
@@ -535,7 +567,7 @@ const styles = StyleSheet.create({
   input: { width: "100%", maxWidth: 320, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, marginTop: 10, color: C.ink },
   loginLogo: { width: 220, height: 80, marginBottom: 4 },
 
-  scannerRoot: { flex: 1, backgroundColor: "#000000", position: "relative" },
+  scannerRoot: { backgroundColor: "#000000", position: "relative" },
   frameWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   frame: { width: 240, height: 240, borderWidth: 3, borderColor: "rgba(255,255,255,0.9)", borderRadius: 20 },
   overlay: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 24, alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" },
@@ -544,7 +576,7 @@ const styles = StyleSheet.create({
   diag: { position: "absolute", top: 10, alignSelf: "center", backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   diagText: { color: C.white, fontSize: 12 },
 
-  result: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+  result: { alignItems: "center", justifyContent: "center", padding: 24 },
   resultTitle: { color: C.white, fontSize: 26, fontWeight: "800", letterSpacing: 1, textAlign: "center" },
   resultName: { color: C.white, fontSize: 20, marginTop: 12, fontWeight: "700", textAlign: "center" },
   resultDetail: { color: "rgba(255,255,255,0.9)", marginTop: 8, textAlign: "center" },
