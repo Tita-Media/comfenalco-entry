@@ -126,6 +126,7 @@ function Scanner() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [netError, setNetError] = useState<string | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const lastToken = useRef<string | null>(null);
 
   async function handleScan(token: string) {
@@ -195,13 +196,21 @@ function Scanner() {
   }
 
   return (
-    <View style={styles.scannerRoot}>
-      <CameraView
-        style={StyleSheet.absoluteFill}
-        facing="back"
-        barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-        onBarcodeScanned={({ data }) => handleScan(data)}
-      />
+    <View
+      style={styles.scannerRoot}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width > 0 && height > 0) setSize({ w: width, h: height });
+      }}
+    >
+      {size && (
+        <CameraView
+          style={{ width: size.w, height: size.h }}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          onBarcodeScanned={({ data }) => handleScan(data)}
+        />
+      )}
       <View style={styles.frameWrap} pointerEvents="none">
         <View style={styles.frame} />
       </View>
