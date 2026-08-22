@@ -16,7 +16,9 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabaseAdmin()
     .from("tickets")
-    .select("id, event_id, attendee_name, attendee_email, attendee_doc, status, events(name)")
+    .select(
+      "id, event_id, attendee_name, attendee_email, attendee_doc, status, redeemed_at, redeemed_by, events(name, multi_entry), entries(count)"
+    )
     .or(`attendee_doc.ilike.%${q}%,attendee_name.ilike.%${q}%`)
     .order("created_at", { ascending: false })
     .limit(20);

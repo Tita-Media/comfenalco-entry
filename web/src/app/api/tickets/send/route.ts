@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
   const { data: event, error: evErr } = await db
     .from("events")
-    .select("name, event_date")
+    .select("name, starts_at, ends_at, location_name, location_address, location_city, multi_entry")
     .eq("id", eventId)
     .single();
   if (evErr || !event) return Response.json({ error: "Evento no encontrado" }, { status: 404 });
@@ -54,9 +54,16 @@ export async function POST(req: Request) {
         await sendTicketEmail({
           to: t.attendee_email,
           attendeeName: t.attendee_name,
-          eventName: event.name,
-          eventDate: event.event_date,
           token: t.token!,
+          event: {
+            name: event.name,
+            startsAt: event.starts_at,
+            endsAt: event.ends_at,
+            locationName: event.location_name,
+            locationAddress: event.location_address,
+            locationCity: event.location_city,
+            multiEntry: event.multi_entry,
+          },
         });
       }
       await db.from("tickets").update({ email_sent_at: new Date().toISOString() }).eq("id", t.id);

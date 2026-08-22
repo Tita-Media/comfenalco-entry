@@ -248,8 +248,24 @@ type Found = {
   attendee_email: string;
   attendee_doc: string | null;
   status: "pending" | "issued" | "redeemed";
-  events: { name: string } | null;
+  redeemed_at: string | null;
+  redeemed_by: string | null;
+  events: { name: string; multi_entry: boolean } | null;
+  entries: { count: number }[];
 };
+
+function usoLabel(t: Found): { text: string; color: string } {
+  if (t.status === "redeemed") {
+    const when = t.redeemed_at ? new Date(t.redeemed_at).toLocaleString() : "";
+    const n = t.entries?.[0]?.count ?? 0;
+    if (t.events?.multi_entry && n > 0) {
+      return { text: `USADO · ${n} ingreso(s) · desde ${when}`, color: "#9a6b12" };
+    }
+    return { text: `USADO el ${when}`, color: "#b3402f" };
+  }
+  if (t.status === "issued") return { text: "NO USADO", color: "#3c7f37" };
+  return { text: "Sin emitir", color: "#5c6b66" };
+}
 
 function SearchScreen() {
   const [q, setQ] = useState("");
@@ -326,7 +342,8 @@ function SearchScreen() {
               <Text style={styles.rowMeta}>
                 {item.attendee_doc ? `CC ${item.attendee_doc} · ` : ""}{item.attendee_email}
               </Text>
-              <Text style={styles.rowMeta}>{item.events?.name ?? "Evento"} · {item.status}</Text>
+              <Text style={styles.rowMeta}>{item.events?.name ?? "Evento"}</Text>
+              <Text style={[styles.usoTag, { color: usoLabel(item).color }]}>{usoLabel(item).text}</Text>
               <Pressable
                 style={[styles.primaryBtn, styles.resendBtn, sentId === item.id && { backgroundColor: C.ok }]}
                 onPress={() => resend(item)}
@@ -548,6 +565,7 @@ const styles = StyleSheet.create({
   rowName: { fontSize: 15, fontWeight: "700", color: C.ink },
   rowMeta: { fontSize: 12.5, color: C.muted, marginTop: 2 },
   rowTime: { fontSize: 13, fontWeight: "700", color: C.muted, marginLeft: 8 },
+  usoTag: { fontSize: 12.5, fontWeight: "800", marginTop: 6, letterSpacing: 0.3 },
 
   settingBlock: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 14, marginTop: 12 },
   settingLabel: { fontSize: 12.5, color: C.muted, fontWeight: "600" },
