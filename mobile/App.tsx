@@ -144,7 +144,7 @@ function Scanner() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [netError, setNetError] = useState<string | null>(null);
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [ready, setReady] = useState(false);
   const lastToken = useRef<string | null>(null);
 
   async function handleScan(token: string) {
@@ -209,22 +209,19 @@ function Scanner() {
   }
 
   return (
-    <View
-      style={styles.scannerRoot}
-      onLayout={(e) => {
-        const { width, height } = e.nativeEvent.layout;
-        if (width > 0 && height > 0) setSize({ w: width, h: height });
-      }}
-    >
-      {size && (
-        <CameraView
-          style={{ width: size.w, height: size.h }}
-          facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-          onBarcodeScanned={({ data }) => handleScan(data)}
-        />
-      )}
+    <View style={styles.scannerRoot}>
+      <CameraView
+        style={StyleSheet.absoluteFillObject}
+        facing="back"
+        active
+        onCameraReady={() => setReady(true)}
+        barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+        onBarcodeScanned={({ data }) => handleScan(data)}
+      />
       <View style={styles.frameWrap} pointerEvents="none"><View style={styles.frame} /></View>
+      <View style={styles.diag} pointerEvents="none">
+        <Text style={styles.diagText}>cámara: {ready ? "lista" : "iniciando…"}</Text>
+      </View>
       <View style={styles.overlay}>
         {busy ? (
           <ActivityIndicator color={C.white} size="large" />
@@ -544,6 +541,8 @@ const styles = StyleSheet.create({
   overlay: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 24, alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" },
   overlayText: { color: C.white, fontSize: 16 },
   overlayError: { color: "#ffb4a4", fontSize: 15, textAlign: "center", marginBottom: 12 },
+  diag: { position: "absolute", top: 10, alignSelf: "center", backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  diagText: { color: C.white, fontSize: 12 },
 
   result: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   resultTitle: { color: C.white, fontSize: 26, fontWeight: "800", letterSpacing: 1, textAlign: "center" },
