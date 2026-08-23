@@ -68,7 +68,7 @@ function buildHtml(t: TicketEmail): string {
         </table>
 
         <div style="text-align:center;background:#f3f6f5;border-radius:12px;padding:20px;">
-          <img src="cid:qr" alt="Código QR de ingreso" width="240" height="240" style="display:block;margin:0 auto;" />
+          <img src="${SITE_URL}/api/qr?t=${encodeURIComponent(t.token)}" alt="Código QR de ingreso" width="240" height="240" style="display:block;margin:0 auto;" />
           <p style="margin:12px 0 0;color:#5c6b66;font-size:13px;">${useNote}</p>
         </div>
 
