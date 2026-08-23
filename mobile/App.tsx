@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -9,6 +9,7 @@ import {
   RefreshControl,
   SafeAreaView,
   ScrollView,
+  SectionList,
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
@@ -47,13 +48,15 @@ const TOP_INSET = Platform.OS === "android" ? RNStatusBar.currentHeight ?? 24 : 
 
 type Tab = "scan" | "search" | "history" | "settings";
 type ScanResult = {
-  result: "ok" | "already_used" | "invalid" | "not_issued" | "full";
+  result: "ok" | "already_used" | "invalid" | "not_issued" | "full" | "inactive";
   attendee_name?: string;
   attendee_doc?: string;
   multi?: boolean;
   entry_number?: number;
   redeemed_at?: string;
   redeemed_by?: string;
+  reason?: "not_started" | "ended";
+  event_name?: string;
 };
 
 const RESULT_COLOR: Record<ScanResult["result"], string> = {
@@ -62,6 +65,7 @@ const RESULT_COLOR: Record<ScanResult["result"], string> = {
   invalid: C.error,
   not_issued: C.error,
   full: C.error,
+  inactive: C.warn,
 };
 const RESULT_TITLE: Record<ScanResult["result"], string> = {
   ok: "INGRESO VÁLIDO",
@@ -69,6 +73,7 @@ const RESULT_TITLE: Record<ScanResult["result"], string> = {
   invalid: "CÓDIGO INVÁLIDO",
   not_issued: "BOLETA NO EMITIDA",
   full: "AFORO COMPLETO",
+  inactive: "EVENTO NO ACTIVO",
 };
 
 async function authHeaders() {
@@ -150,11 +155,23 @@ function Scanner({ height }: { height: number }) {
   const [busy, setBusy] = useState(false);
   const [netError, setNetError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [active, setActive] = useState<{ name: string }[] | null>(null);
   const lastToken = useRef<string | null>(null);
 
   // Altura explícita medida por el contenedor padre (evita que el flex colapse
   // el área de cámara a 0 en algunos dispositivos). Fallback a flex:1.
   const fill = height > 0 ? { height } : { flex: 1 as const };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/events/active`, { headers: await authHeaders() });
+        setActive(res.ok ? ((await res.json()) as { name: string }[]) : []);
+      } catch {
+        setActive([]);
+      }
+    })();
+  }, []);
 
   async function handleScan(token: string) {
     if (busy || scan || token === lastToken.current) return;
@@ -210,6 +227,11 @@ function Scanner({ height }: { height: number }) {
             {scan.redeemed_by ? `\npor ${scan.redeemed_by}` : ""}
           </Text>
         )}
+        {scan.result === "inactive" && (
+          <Text style={styles.resultDetail}>
+            {scan.event_name ?? "Evento"} · {scan.reason === "not_started" ? "aún no inicia" : "ya finalizó"}
+          </Text>
+        )}
         <Pressable style={styles.lightBtn} onPress={next}>
           <Text style={styles.lightBtnText}>Escanear siguiente</Text>
         </Pressable>
@@ -229,7 +251,12 @@ function Scanner({ height }: { height: number }) {
       />
       <View style={styles.frameWrap} pointerEvents="none"><View style={styles.frame} /></View>
       <View style={styles.diag} pointerEvents="none">
-        <Text style={styles.diagText}>cámara: {ready ? "lista" : "iniciando…"}</Text>
+        <Text style={styles.diagText}>
+          {ready ? "cámara lista" : "cámara iniciando…"}
+          {active && (active.length > 0
+            ? ` · activos: ${active.map((e) => e.name).join(", ")}`
+            : " · ⚠ sin eventos activos")}
+        </Text>
       </View>
       <View style={styles.overlay}>
         {busy ? (
@@ -397,6 +424,22 @@ function History() {
     load();
   }, [load]);
 
+  // Agrupar por evento + día.
+  const sections = useMemo(() => {
+    const map = new Map<string, Ingreso[]>();
+    for (const it of items) {
+      const day = it.redeemed_at ? new Date(it.redeemed_at).toLocaleDateString() : "Sin fecha";
+      const ev = it.events?.name ?? "Evento";
+      const key = ev + " - " + day;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(it);
+    }
+    return Array.from(map.entries()).map(([key, data]) => {
+      const title = key;
+      return { title, count: data.length, data };
+    });
+  }, [items]);
+
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <View style={styles.listHeader}>
@@ -406,20 +449,25 @@ function History() {
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={C.brand} size="large" /></View>
       ) : (
-        <FlatList
-          data={items}
+        <SectionList
+          sections={sections}
           keyExtractor={(i) => i.id}
+          stickySectionHeadersEnabled
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={C.brand} />}
-          contentContainerStyle={items.length === 0 ? styles.center : { padding: 12 }}
+          contentContainerStyle={sections.length === 0 ? styles.center : { padding: 12 }}
           ListEmptyComponent={<Text style={[styles.msg, error ? { color: C.error } : null]}>{error ?? "Aún no hay ingresos registrados."}</Text>}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{section.title}</Text>
+              <Text style={styles.sectionCount}>{section.count}</Text>
+            </View>
+          )}
           renderItem={({ item }) => (
             <View style={styles.row}>
               <View style={styles.rowDot} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowName}>{item.attendee_name}</Text>
-                <Text style={styles.rowMeta}>
-                  {item.events?.name ?? "Evento"}{item.attendee_doc ? ` · CC ${item.attendee_doc}` : ""}
-                </Text>
+                <Text style={styles.rowMeta}>{item.attendee_doc ? `CC ${item.attendee_doc}` : ""}</Text>
               </View>
               <Text style={styles.rowTime}>
                 {item.redeemed_at ? new Date(item.redeemed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
@@ -597,6 +645,9 @@ const styles = StyleSheet.create({
   rowMeta: { fontSize: 12.5, color: C.muted, marginTop: 2 },
   rowTime: { fontSize: 13, fontWeight: "700", color: C.muted, marginLeft: 8 },
   usoTag: { fontSize: 12.5, fontWeight: "800", marginTop: 6, letterSpacing: 0.3 },
+  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: C.paper, paddingVertical: 6, marginTop: 6 },
+  sectionTitle: { fontSize: 13, fontWeight: "800", color: C.brand },
+  sectionCount: { fontSize: 12, fontWeight: "700", color: C.muted },
 
   settingBlock: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 14, marginTop: 12 },
   settingLabel: { fontSize: 12.5, color: C.muted, fontWeight: "600" },

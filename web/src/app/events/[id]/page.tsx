@@ -12,6 +12,7 @@ import {
   CfModal,
 } from "comfenalco-ui-react";
 import AuthGate from "@/components/AuthGate";
+import EventForm, { EMPTY_EVENT, toLocalInput, type EventFormValue } from "@/components/EventForm";
 import { api, supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type Ticket = {
@@ -41,6 +42,10 @@ function EventDetail() {
   const [busy, setBusy] = useState(false);
   const [qrPreview, setQrPreview] = useState<{ name: string; dataUrl: string } | null>(null);
   const [live, setLive] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<EventFormValue>(EMPTY_EVENT);
+  const [operators, setOperators] = useState<{ id: string; email: string | null }[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -128,6 +133,61 @@ function EventDetail() {
     });
   }
 
+  async function openEdit() {
+    setError(null);
+    try {
+      type Ev = {
+        name: string; starts_at: string | null; ends_at: string | null; max_capacity: number | null;
+        send_mode: "deferred" | "immediate"; multi_entry: boolean; capture_geo: boolean;
+        location_name: string | null; location_address: string | null; location_city: string | null;
+        event_operators: { operator_email: string }[];
+      };
+      const [ev, ops] = await Promise.all([
+        api<Ev>(`/api/events/${id}`),
+        api<{ id: string; email: string | null }[]>("/api/operators").catch(() => []),
+      ]);
+      setOperators(ops);
+      setForm({
+        name: ev.name ?? "",
+        starts_at: toLocalInput(ev.starts_at),
+        ends_at: toLocalInput(ev.ends_at),
+        max_capacity: ev.max_capacity != null ? String(ev.max_capacity) : "",
+        send_mode: ev.send_mode ?? "deferred",
+        multi_entry: ev.multi_entry,
+        capture_geo: ev.capture_geo,
+        location_name: ev.location_name ?? "",
+        location_address: ev.location_address ?? "",
+        location_city: ev.location_city ?? "",
+        operators: ev.event_operators?.map((o) => o.operator_email) ?? [],
+      });
+      setEditing(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function saveEdit() {
+    setSavingEdit(true);
+    setError(null);
+    setMsg(null);
+    try {
+      await api(`/api/events/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...form,
+          max_capacity: form.max_capacity ? Number(form.max_capacity) : null,
+          starts_at: form.starts_at || null,
+          ends_at: form.ends_at || null,
+        }),
+      });
+      setEditing(false);
+      setMsg("Evento actualizado.");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setSavingEdit(false);
+  }
+
   async function showQr(t: Ticket) {
     if (!t.token) return;
     const dataUrl = await QRCode.toDataURL(t.token, { width: 320, margin: 2 });
@@ -149,10 +209,27 @@ function EventDetail() {
           </Link>
           <h1>Gestión de boletas</h1>
         </div>
-        <span className={`live-dot ${live ? "on" : "off"}`} title={live ? "Actualización en vivo" : "Reconectando…"}>
-          ● {live ? "En vivo" : "…"}
-        </span>
+        <div className="toolbar">
+          <span className={`live-dot ${live ? "on" : "off"}`} title={live ? "Actualización en vivo" : "Reconectando…"}>
+            ● {live ? "En vivo" : "…"}
+          </span>
+          <CfButton variant={editing ? "tertiary" : "secondary"} icon={editing ? "close" : "edit"} onClick={() => (editing ? setEditing(false) : openEdit())}>
+            {editing ? "Cerrar edición" : "Editar evento"}
+          </CfButton>
+        </div>
       </div>
+
+      {editing && (
+        <section className="panel">
+          <h2>Editar evento</h2>
+          <EventForm value={form} onChange={setForm} operators={operators} />
+          <div style={{ marginTop: "1.5rem" }}>
+            <CfButton variant="primary" icon="save" isLoading={savingEdit} onClick={saveEdit}>
+              Guardar cambios
+            </CfButton>
+          </div>
+        </section>
+      )}
 
       <div className="kpi-row">
         <CfKpiMetric label="Reservas" value={String(tickets.length)} icon="confirmation_number" />
