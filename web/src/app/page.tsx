@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CfButton, CfTable, CfAlert } from "comfenalco-ui-react";
+import { CfButton, CfTable, CfAlert, CfSkeletonTable } from "comfenalco-ui-react";
 import type { CfTableColumn, CfTableRow } from "comfenalco-ui-wc";
 import AuthGate from "@/components/AuthGate";
 import EventForm, { EMPTY_EVENT, type EventFormValue } from "@/components/EventForm";
@@ -41,6 +41,7 @@ function EventsPage() {
   const [form, setForm] = useState<EventFormValue>(EMPTY_EVENT);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +53,8 @@ function EventsPage() {
       setOperators(ops);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -129,8 +132,10 @@ function EventsPage() {
       )}
 
       <section className="panel">
-        <h2>Vigentes ({vigentes.length})</h2>
-        {vigentes.length === 0 ? (
+        <h2>Vigentes{loading ? "" : ` (${vigentes.length})`}</h2>
+        {loading ? (
+          <CfSkeletonTable rows={3} ariaLabel="Cargando eventos vigentes" />
+        ) : vigentes.length === 0 ? (
           <p className="muted">No hay eventos vigentes.</p>
         ) : (
           <CfTable columns={COLUMNS} data={vigentes} rowKeyField="id" rowClickable ariaLabel="Eventos vigentes" onCfRowClick={(e) => router.push(`/events/${e.detail.id}`)} />
@@ -138,8 +143,10 @@ function EventsPage() {
       </section>
 
       <section className="panel">
-        <h2>Pasados ({pasados.length})</h2>
-        {pasados.length === 0 ? (
+        <h2>Pasados{loading ? "" : ` (${pasados.length})`}</h2>
+        {loading ? (
+          <CfSkeletonTable rows={3} ariaLabel="Cargando eventos pasados" />
+        ) : pasados.length === 0 ? (
           <p className="muted">No hay eventos pasados.</p>
         ) : (
           <CfTable columns={COLUMNS} data={pasados} rowKeyField="id" rowClickable ariaLabel="Eventos pasados" onCfRowClick={(e) => router.push(`/events/${e.detail.id}`)} />

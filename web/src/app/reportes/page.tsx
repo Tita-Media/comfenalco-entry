@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { CfKpiMetric, CfSelect, CfButton, CfAlert } from "comfenalco-ui-react";
+import { CfKpiMetric, CfSelect, CfButton, CfAlert, CfSkeleton, CfSkeletonKpiMetric } from "comfenalco-ui-react";
 import AuthGate from "@/components/AuthGate";
 import { api } from "@/lib/supabaseBrowser";
 import type { GeoEntry } from "@/components/EntriesMap";
@@ -29,6 +29,7 @@ function ReportesPage() {
   const [eventId, setEventId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -40,6 +41,7 @@ function ReportesPage() {
       setError((e as Error).message);
     }
     setBusy(false);
+    setLoading(false);
   }, [eventId]);
 
   useEffect(() => {
@@ -97,26 +99,39 @@ function ReportesPage() {
       {error && <CfAlert variant="error">{error}</CfAlert>}
 
       <div className="kpi-row">
-        <CfKpiMetric label="Ingresos totales" value={String(entries.length)} icon="login" />
-        <CfKpiMetric label="Eventos con ingresos" value={String(stats.evs)} icon="event" />
-        <CfKpiMetric label="Operadores activos" value={String(stats.ops)} icon="group" />
-        <CfKpiMetric label="Con geolocalización" value={String(stats.geo.length)} icon="location_on" />
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <CfSkeletonKpiMetric key={i} ariaLabel="Cargando métrica" />)
+        ) : (
+          <>
+            <CfKpiMetric label="Ingresos totales" value={String(entries.length)} icon="login" />
+            <CfKpiMetric label="Eventos con ingresos" value={String(stats.evs)} icon="event" />
+            <CfKpiMetric label="Operadores activos" value={String(stats.ops)} icon="group" />
+            <CfKpiMetric label="Con geolocalización" value={String(stats.geo.length)} icon="location_on" />
+          </>
+        )}
       </div>
 
       <section className="panel">
         <h2>Ingresos por hora del día</h2>
-        <div className="bars">
-          {stats.hourly.map((v, h) => (
-            <div key={h} className="bar-col" title={`${h}:00 — ${v} ingresos`}>
-              <div className="bar" style={{ height: `${(v / stats.maxHour) * 100}%` }} />
-              <span className="bar-label">{h}</span>
-            </div>
-          ))}
-        </div>
+        {loading ? (
+          <CfSkeleton variant="rect" width="100%" height={180} />
+        ) : (
+          <div className="bars">
+            {stats.hourly.map((v, h) => (
+              <div key={h} className="bar-col" title={`${h}:00 — ${v} ingresos`}>
+                <div className="bar" style={{ height: `${(v / stats.maxHour) * 100}%` }} />
+                <span className="bar-label">{h}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="panel">
         <h2>Mapa de horas (día × hora)</h2>
+        {loading ? (
+          <CfSkeleton variant="rect" width="100%" height={200} />
+        ) : (
         <div className="table-wrap">
           <div className="heat">
             <div className="heat-row heat-head">
@@ -140,11 +155,12 @@ function ReportesPage() {
             ))}
           </div>
         </div>
+        )}
       </section>
 
       <section className="panel">
         <h2>Mapa geográfico de ingresos</h2>
-        <EntriesMap points={stats.geo} />
+        {loading ? <CfSkeleton variant="rect" width="100%" height={380} /> : <EntriesMap points={stats.geo} />}
       </section>
     </div>
   );

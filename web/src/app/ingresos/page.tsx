@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CfTable, CfButton, CfAlert } from "comfenalco-ui-react";
+import { CfTable, CfButton, CfAlert, CfSkeletonTable } from "comfenalco-ui-react";
 import type { CfTableColumn, CfTableRow } from "comfenalco-ui-wc";
 import AuthGate from "@/components/AuthGate";
 import { api } from "@/lib/supabaseBrowser";
@@ -27,6 +27,7 @@ function IngresosPage() {
   const [items, setItems] = useState<Ingreso[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -37,6 +38,7 @@ function IngresosPage() {
       setError((e as Error).message);
     }
     setBusy(false);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -65,9 +67,11 @@ function IngresosPage() {
       </header>
 
       <section className="panel">
-        <h2>{items.length} ingreso(s)</h2>
+        <h2>{loading ? "Ingresos" : `${items.length} ingreso(s)`}</h2>
         {error && <div style={{ marginBottom: "1rem" }}><CfAlert variant="error">{error}</CfAlert></div>}
-        {rows.length === 0 && !busy ? (
+        {loading ? (
+          <CfSkeletonTable rows={5} ariaLabel="Cargando ingresos" />
+        ) : rows.length === 0 ? (
           <p className="muted">Aún no hay ingresos registrados. Aparecerán aquí en cuanto el personal valide boletas.</p>
         ) : (
           <CfTable columns={COLUMNS} data={rows} rowKeyField="id" ariaLabel="Ingresos realizados" />

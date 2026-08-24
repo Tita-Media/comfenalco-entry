@@ -10,6 +10,8 @@ import {
   CfAlert,
   CfKpiMetric,
   CfModal,
+  CfSkeletonTable,
+  CfSkeletonKpiMetric,
 } from "comfenalco-ui-react";
 import AuthGate from "@/components/AuthGate";
 import EventForm, { EMPTY_EVENT, toLocalInput, type EventFormValue } from "@/components/EventForm";
@@ -46,12 +48,15 @@ function EventDetail() {
   const [form, setForm] = useState<EventFormValue>(EMPTY_EVENT);
   const [operators, setOperators] = useState<{ id: string; email: string | null }[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
       setTickets(await api<Ticket[]>(`/api/tickets?event_id=${id}`));
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }, [id]);
 
@@ -232,10 +237,16 @@ function EventDetail() {
       )}
 
       <div className="kpi-row">
-        <CfKpiMetric label="Reservas" value={String(tickets.length)} icon="confirmation_number" />
-        <CfKpiMetric label="Pendientes" value={String(counts.pending)} icon="schedule" />
-        <CfKpiMetric label="Emitidas" value={String(counts.issued)} icon="mail" />
-        <CfKpiMetric label="Validadas" value={String(counts.redeemed)} icon="check_circle" />
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <CfSkeletonKpiMetric key={i} ariaLabel="Cargando métrica" />)
+        ) : (
+          <>
+            <CfKpiMetric label="Reservas" value={String(tickets.length)} icon="confirmation_number" />
+            <CfKpiMetric label="Pendientes" value={String(counts.pending)} icon="schedule" />
+            <CfKpiMetric label="Emitidas" value={String(counts.issued)} icon="mail" />
+            <CfKpiMetric label="Validadas" value={String(counts.redeemed)} icon="check_circle" />
+          </>
+        )}
       </div>
 
       <section className="panel">
@@ -280,6 +291,9 @@ function EventDetail() {
 
       <section className="panel">
         <h2>Boletas</h2>
+        {loading ? (
+          <CfSkeletonTable rows={5} ariaLabel="Cargando boletas" />
+        ) : (
         <div className="table-wrap">
           <table className="tickets">
             <thead>
@@ -334,6 +348,7 @@ function EventDetail() {
             </tbody>
           </table>
         </div>
+        )}
       </section>
 
       <CfModal

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CfButton, CfInput, CfAlert } from "comfenalco-ui-react";
+import { CfButton, CfInput, CfAlert, CfSkeletonTable } from "comfenalco-ui-react";
 import AuthGate from "@/components/AuthGate";
 import { api } from "@/lib/supabaseBrowser";
 
@@ -20,12 +20,15 @@ function OperadoresPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
       setOps(await api<Operator[]>("/api/operators"));
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -91,7 +94,10 @@ function OperadoresPage() {
       </section>
 
       <section className="panel">
-        <h2>{ops.length} operador(es)</h2>
+        <h2>{loading ? "Operadores" : `${ops.length} operador(es)`}</h2>
+        {loading ? (
+          <CfSkeletonTable rows={3} ariaLabel="Cargando operadores" />
+        ) : (
         <div className="table-wrap">
           <table className="tickets">
             <thead>
@@ -123,6 +129,7 @@ function OperadoresPage() {
             </tbody>
           </table>
         </div>
+        )}
       </section>
     </div>
   );
