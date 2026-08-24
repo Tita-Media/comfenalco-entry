@@ -73,11 +73,19 @@ function EventDetail() {
       if (data.session) sb.realtime.setAuth(data.session.access_token);
       channel = sb
         .channel(`tickets-${id}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "tickets", filter: `event_id=eq.${id}` },
-          () => load()
-        )
+        // Sin filtro del lado servidor (evita depender de REPLICA IDENTITY FULL);
+        // filtramos por evento en el cliente. También escuchamos 'entries' para
+        // reflejar reingresos en eventos multi-ingreso.
+        .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, (payload) => {
+          const rowEventId =
+            (payload.new as { event_id?: string })?.event_id ??
+            (payload.old as { event_id?: string })?.event_id;
+          if (!rowEventId || rowEventId === id) load();
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "entries" }, (payload) => {
+          const rowEventId = (payload.new as { event_id?: string })?.event_id;
+          if (!rowEventId || rowEventId === id) load();
+        })
         .subscribe((status) => setLive(status === "SUBSCRIBED"));
     })();
     return () => {
