@@ -1,7 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { vtexConfigured, listPaidOrders, getOrder } from "@/lib/vtex";
+import { vtexConfigured, listPaidOrders, getOrder, extractAttendees, type VtexOrder } from "@/lib/vtex";
 import { signTicketToken } from "@/lib/token";
 import { sendTicketEmail, smtpConfigured } from "@/lib/mailer";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -52,76 +53,114 @@ export async function GET(req: Request) {
   const sinceISO = new Date(Date.now() - 6 * 3600 * 1000).toISOString(); // últimas 6 horas
   const orders = await listPaidOrders(sinceISO);
 
-  let created = 0;
-  let sent = 0;
-  const failures: string[] = [];
+  const stats = { created: 0, sent: 0, failures: [] as string[] };
 
   for (const { orderId } of orders) {
     const order = await getOrder(orderId);
     if (!order) continue;
+
     const c = order.clientProfileData ?? {};
-    const name = [c.firstName, c.lastName].filter(Boolean).join(" ") || "Asistente";
-    const email = (c.email ?? "").trim().toLowerCase();
-    const doc = c.document ?? null;
-    if (!email) continue;
+    const buyer = {
+      name: [c.firstName, c.lastName].filter(Boolean).join(" ") || "Asistente",
+      email: (c.email ?? "").trim().toLowerCase(),
+      doc: c.document ?? null,
+    };
 
-    for (const item of order.items ?? []) {
-      const sku = String(item.sellerSku ?? item.refId ?? item.id ?? "");
-      const eventId = skuToEvent.get(sku);
-      if (!eventId) continue;
+    // Ítems mapeados a un evento.
+    const mapped = (order.items ?? [])
+      .map((it) => ({ it, eventId: skuToEvent.get(String(it.sellerSku ?? it.refId ?? it.id ?? "")) }))
+      .filter((x): x is { it: NonNullable<VtexOrder["items"]>[number]; eventId: string } => Boolean(x.eventId));
+    if (mapped.length === 0) continue;
+
+    const distinctEvents = new Set(mapped.map((m) => m.eventId));
+    const attendees = extractAttendees(order);
+
+    // Caso multi‑asistente: customData con asistentes + un solo evento en la orden.
+    if (attendees.length > 0 && distinctEvents.size === 1) {
+      const eventId = mapped[0].eventId;
       const ev = events.get(eventId);
-      const qty = Math.max(1, item.quantity ?? 1);
-
-      for (let i = 0; i < qty; i++) {
-        const external_ref = `vtex:${orderId}:${item.id ?? sku}:${i}`;
-        const { data: ins, error } = await db
-          .from("tickets")
-          .insert({
-            event_id: eventId,
-            attendee_name: name,
-            attendee_email: email,
-            attendee_doc: doc,
-            source: "vtex",
-            external_ref,
-          })
-          .select("id")
-          .single();
-
-        // Conflicto por external_ref (ya procesado) → idempotente, se ignora.
-        if (error || !ins) continue;
-        created++;
-
-        // Envío inmediato: emitir token y enviar el QR ya.
-        if (ev && ev.send_mode === "immediate") {
-          try {
-            const token = signTicketToken(ins.id);
-            await db.from("tickets").update({ token, status: "issued" }).eq("id", ins.id);
-            if (smtpConfigured()) {
-              await sendTicketEmail({
-                to: email,
-                attendeeName: name,
-                token,
-                event: {
-                  name: ev.name,
-                  startsAt: ev.starts_at,
-                  endsAt: ev.ends_at,
-                  locationName: ev.location_name,
-                  locationAddress: ev.location_address,
-                  locationCity: ev.location_city,
-                  multiEntry: ev.multi_entry,
-                },
-              });
-              await db.from("tickets").update({ email_sent_at: new Date().toISOString() }).eq("id", ins.id);
-              sent++;
-            }
-          } catch (e) {
-            failures.push(external_ref);
-            console.error("VTEX sync envío falló:", external_ref, e);
-          }
+      for (let i = 0; i < attendees.length; i++) {
+        const a = attendees[i];
+        await issue(
+          db,
+          eventId,
+          ev,
+          {
+            name: a.name || buyer.name,
+            email: (a.email || buyer.email).trim().toLowerCase(),
+            doc: a.doc ?? buyer.doc,
+          },
+          `vtex:${orderId}:att:${i}`,
+          stats
+        );
+      }
+    } else {
+      // Fallback: datos del comprador × cantidad, por cada ítem mapeado.
+      if (!buyer.email) continue;
+      for (const { it, eventId } of mapped) {
+        const ev = events.get(eventId);
+        const qty = Math.max(1, it.quantity ?? 1);
+        for (let i = 0; i < qty; i++) {
+          await issue(db, eventId, ev, buyer, `vtex:${orderId}:${it.id ?? eventId}:${i}`, stats);
         }
       }
     }
   }
 
-  return Response.json({ orders: orders.length, created, sent, failures });
+  return Response.json({ orders: orders.length, ...stats });
+}
+
+/** Crea una boleta idempotente y, si el evento es inmediato, emite y envía el QR. */
+async function issue(
+  db: SupabaseClient,
+  eventId: string,
+  ev: EventRow | undefined,
+  person: { name: string; email: string; doc: string | null },
+  externalRef: string,
+  stats: { created: number; sent: number; failures: string[] }
+) {
+  if (!person.email) return;
+  const { data: ins, error } = await db
+    .from("tickets")
+    .insert({
+      event_id: eventId,
+      attendee_name: person.name,
+      attendee_email: person.email,
+      attendee_doc: person.doc,
+      source: "vtex",
+      external_ref: externalRef,
+    })
+    .select("id")
+    .single();
+
+  if (error || !ins) return; // conflicto por external_ref → idempotente
+  stats.created++;
+
+  if (ev && ev.send_mode === "immediate") {
+    try {
+      const token = signTicketToken(ins.id);
+      await db.from("tickets").update({ token, status: "issued" }).eq("id", ins.id);
+      if (smtpConfigured()) {
+        await sendTicketEmail({
+          to: person.email,
+          attendeeName: person.name,
+          token,
+          event: {
+            name: ev.name,
+            startsAt: ev.starts_at,
+            endsAt: ev.ends_at,
+            locationName: ev.location_name,
+            locationAddress: ev.location_address,
+            locationCity: ev.location_city,
+            multiEntry: ev.multi_entry,
+          },
+        });
+        await db.from("tickets").update({ email_sent_at: new Date().toISOString() }).eq("id", ins.id);
+        stats.sent++;
+      }
+    } catch (e) {
+      stats.failures.push(externalRef);
+      console.error("VTEX sync envío falló:", externalRef, e);
+    }
+  }
 }
